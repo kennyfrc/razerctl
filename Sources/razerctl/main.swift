@@ -376,10 +376,18 @@ func runBluetooth() {
     print("Razer mice that do support Bluetooth, such as the Cobra Pro or the DeathAdder V2 Pro,")
     print("pair from their underside switch (2.4 GHz / Bluetooth / off) and appear as a Bluetooth")
     print("HID device instead of a 1532:xxxx USB one.")
-    if let device = try? openDevice(Options()) {
-        print("")
-        print("Currently connected: \(RazerDevice.describe(productId: device.productId, productName: device.productName))")
+    print("")
+    print("Razer links macOS can see right now (USB vendor 0x1532):")
+    let attached = Dictionary(grouping: RazerDevice.interfaces(), by: { $0.productId })
+    if attached.isEmpty {
+        print("  none")
     }
+    for pid in attached.keys.sorted() {
+        print("  " + RazerDevice.describe(productId: pid, productName: "Razer device")
+            + " (" + String(format: "1532:%04X", pid) + ")")
+    }
+    print("No Bluetooth entry can appear for a mouse that only speaks USB, so nothing shows up")
+    print("in System Settings > Bluetooth to pair with.")
 }
 
 func runSummary(options: Options) {
