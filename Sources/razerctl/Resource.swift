@@ -3,8 +3,11 @@ import Foundation
 /// Declarative state, Kubernetes style: you write the spec you want, the agent keeps the
 /// mouse matching it, and the status reports what it actually saw.
 struct MouseSpec: Codable, Equatable {
+    /// Set a DPI value on the active stage. Cleared when stage is set.
     var dpi: Int?
     var pollingHz: Int?
+    /// Point at an existing stage instead of writing a value.
+    var stage: Int?
 }
 
 struct MouseResource: Equatable {
@@ -63,13 +66,19 @@ struct MouseResource: Equatable {
 
         if let spec = dictionary["spec"] {
             guard let map = spec as? [String: Any] else { throw CLIError("spec must be a map") }
-            try rejectUnknown(map, allowed: ["dpi", "pollingHz"], at: "spec")
+            try rejectUnknown(map, allowed: ["dpi", "pollingHz", "stage"], at: "spec")
 
             if let value = try integer(map["dpi"], field: "spec.dpi") {
                 guard value >= RazerCommands.dpiMin, value <= RazerCommands.dpiMax else {
                     throw CLIError("spec.dpi must be between \(RazerCommands.dpiMin) and \(RazerCommands.dpiMax)")
                 }
                 resource.spec.dpi = value
+            }
+            if let value = try integer(map["stage"], field: "spec.stage") {
+                guard value >= 1, value <= 5 else {
+                    throw CLIError("spec.stage must be between 1 and 5")
+                }
+                resource.spec.stage = value
             }
             if let value = try integer(map["pollingHz"], field: "spec.pollingHz") {
                 guard RazerCommands.supportedRates.contains(value) else {
@@ -84,6 +93,9 @@ struct MouseResource: Equatable {
 
     static func integer(_ value: Any?, field: String) throws -> Int? {
         guard let value else { return nil }
+        // An explicit "null" in YAML is absence, not a bad value. Without this the whole
+        // file failed to parse and the agent saw no desired state at all.
+        if value is NSNull { return nil }
         if let number = value as? Int { return number }
         if let text = value as? String, let number = Int(text) { return number }
         throw CLIError("\(field) must be a whole number")
@@ -109,6 +121,7 @@ struct MouseResource: Equatable {
         ]
         lines.append("  dpi: \(spec.dpi.map(String.init) ?? "null")")
         lines.append("  pollingHz: \(spec.pollingHz.map(String.init) ?? "null")")
+        lines.append("  stage: \(spec.stage.map(String.init) ?? "null")")
         return lines.joined(separator: "\n") + "\n"
     }
 }

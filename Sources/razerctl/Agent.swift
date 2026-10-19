@@ -5,20 +5,14 @@ import Foundation
 struct Settings: Codable, Equatable {
     var dpi: Int?
     var polling: Int?
+    var stage: Int?
 
     static let directory = MouseResource.directory
     static let file = MouseResource.file
 
     static func load() -> Settings {
         guard let resource = MouseResource.load() else { return Settings() }
-        return Settings(dpi: resource.spec.dpi, polling: resource.spec.pollingHz)
-    }
-
-    func save() throws {
-        var resource = MouseResource.load() ?? MouseResource()
-        resource.spec.dpi = dpi
-        resource.spec.pollingHz = polling
-        try resource.save()
+        return Settings(dpi: resource.spec.dpi, polling: resource.spec.pollingHz, stage: resource.spec.stage)
     }
 }
 
@@ -47,6 +41,7 @@ struct AgentState: Codable {
     var pollingHz: Int?
     var connected: Bool?
     var link: String?
+    var activeStage: Int?
     var phase: String?
     var conditions: [Condition]?
     var updatedAt: Date
@@ -230,17 +225,49 @@ func runWatch() {
         // Mark a value as applied even when the write fails, so a setting the current link
         // cannot take (8 kHz on the cable) does not retry every five seconds. A reconnect
         // resets this, which is when the setting becomes possible again.
-        if let dpi = settings.dpi, dpi != applied.dpi {
-            if (try? RazerCommands.setDPI(device, x: dpi, y: dpi)) != nil {
-                noted.append("dpi \(dpi)")
+        // A failed write is only "done" when the link cannot do it at all. A busy or
+        // timed-out write is retried on the next pass instead of being forgotten.
+        if let stage = settings.stage, stage != applied.stage {
+            do {
+                try RazerCommands.activateStage(device, index: stage)
+                noted.append("stage \(stage)")
+                applied.stage = stage
+            } catch RazerError.notSupported {
+                applied.stage = stage
+                Agent.logLine("stage \(stage) not supported on this link")
+            } catch RazerError.deviceFailure {
+                applied.stage = stage
+                Agent.logLine("stage \(stage) rejected by the device")
+            } catch {
+                Agent.logLine("stage \(stage) failed (\(error)), retrying")
             }
-            applied.dpi = dpi
+        }
+        if let dpi = settings.dpi, dpi != applied.dpi {
+            do {
+                try RazerCommands.setDPI(device, x: dpi, y: dpi)
+                noted.append("dpi \(dpi)")
+                applied.dpi = dpi
+            } catch RazerError.notSupported {
+                applied.dpi = dpi
+                Agent.logLine("dpi \(dpi) not supported on this link")
+            } catch RazerError.deviceFailure {
+                applied.dpi = dpi
+                Agent.logLine("dpi \(dpi) rejected by the device")
+            } catch {
+                Agent.logLine("dpi \(dpi) failed (\(error)), retrying")
+            }
         }
         if let polling = settings.polling, polling != applied.polling {
-            if (try? RazerCommands.setPollingRate(device, hz: polling)) != nil {
+            do {
+                try RazerCommands.setPollingRate(device, hz: polling)
                 noted.append("polling \(polling) Hz")
+                applied.polling = polling
+            } catch RazerError.notSupported {
+                applied.polling = polling
+                Agent.logLine("polling \(polling) not supported on this link")
+            } catch {
+                Agent.logLine("polling \(polling) failed (\(error)), retrying")
             }
-            applied.polling = polling
         }
         if !noted.isEmpty {
             Agent.logLine("applied \(noted.joined(separator: ", "))")
@@ -252,6 +279,7 @@ func runWatch() {
         if Date().timeIntervalSince(lastBatteryRead) > 60 {
             let battery = try? RazerCommands.battery(device)
             let dpi = try? RazerCommands.dpi(device)
+            let activeStage = (try? RazerCommands.dpiStages(device))?.active
             let polling = try? RazerCommands.pollingRate(device)
             let state = AgentState(
                 product: RazerDevice.describe(productId: device.productId, productName: device.productName),
@@ -262,6 +290,7 @@ func runWatch() {
                 dpiY: dpi?.y,
                 pollingHz: polling?.hz,
                 connected: true,
+                activeStage: activeStage,
                 updatedAt: Date()
             )
             state.save()

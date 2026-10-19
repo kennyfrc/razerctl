@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 struct CLIError: Error, CustomStringConvertible {
     let message: String
@@ -20,6 +21,7 @@ USAGE
   razerctl polling <hz>            Set the polling rate and save it
   razerctl stages [values...]      Show or set the DPI stage list (--active N)
   razerctl match [dpi]             Match the Logitech DPI, read from mxctl
+  razerctl cursor                  Print the cursor position, for a distance test
   razerctl raw <class> <id> <size> [hex bytes...]
                                    Send a raw Razer report, for protocol work
   razerctl doctor                  Permissions, detection, and a live probe
@@ -233,9 +235,10 @@ func runDPI(options: Options, argument: String?) throws {
     guard value >= RazerCommands.dpiMin, value <= RazerCommands.dpiMax else {
         fail("dpi must be between \(RazerCommands.dpiMin) and \(RazerCommands.dpiMax)")
     }
-    var settings = Settings.load()
-    settings.dpi = value
-    try? settings.save()
+    var resource = MouseResource.load() ?? MouseResource()
+    resource.spec.dpi = value
+    resource.spec.stage = nil
+    try? resource.save()
 
     do {
         let device = try openDevice(options)
@@ -265,9 +268,9 @@ func runPolling(options: Options, argument: String?) throws {
     guard RazerCommands.supportedRates.contains(hz) else {
         fail("supported rates: \(RazerCommands.supportedRates.map(String.init).joined(separator: ", "))")
     }
-    var settings = Settings.load()
-    settings.polling = hz
-    try? settings.save()
+    var resource = MouseResource.load() ?? MouseResource()
+    resource.spec.pollingHz = hz
+    try? resource.save()
 
     do {
         let device = try openDevice(options)
@@ -291,7 +294,25 @@ func runPair(options: Options) throws {
 }
 
 func runStages(options: Options, arguments: [String]) throws {
-    let device = try openDevice(options)
+    if arguments.isEmpty, let stage = options.activeStage {
+        var resource = MouseResource.load() ?? MouseResource()
+        resource.spec.stage = stage
+        resource.spec.dpi = nil
+        try resource.save()
+        print("Saved active stage \(stage). The agent applies it within a few seconds.")
+        return
+    }
+
+    let device: RazerDevice
+    do {
+        device = try openDevice(options)
+    } catch RazerError.permissionDenied {
+        guard arguments.isEmpty, let state = agentState() else { throw RazerError.permissionDenied }
+        print("active: \(state.activeStage.map(String.init) ?? "unknown") (agent)")
+        if let dpi = state.dpiX { print("value:  \(dpi)") }
+        return
+    }
+
     guard !arguments.isEmpty else {
         let stages = try RazerCommands.dpiStages(device)
         print("active: \(stages.active)")
@@ -351,6 +372,16 @@ func logitechDPI() -> Int? {
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     let text = String(decoding: data, as: UTF8.self)
     return text.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.first
+}
+
+/// Prints the cursor position, so a fixed physical movement can be measured on screen.
+func runCursor(options: Options) {
+    guard let location = CGEvent(source: nil)?.location else { fail("no cursor position available") }
+    if options.json {
+        printJSON(["x": Double(location.x), "y": Double(location.y)])
+    } else {
+        print("\(Int(location.x)) \(Int(location.y))")
+    }
 }
 
 func runRaw(options: Options, arguments: [String]) throws {
@@ -727,6 +758,8 @@ do {
         try runStages(options: options, arguments: Array(positional.dropFirst()))
     case "match":
         try runMatch(options: options, argument: positional.count > 1 ? positional[1] : nil)
+    case "cursor":
+        runCursor(options: options)
     case "raw":
         try runRaw(options: options, arguments: Array(positional.dropFirst()))
     case "doctor":

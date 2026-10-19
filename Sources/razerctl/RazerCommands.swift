@@ -84,6 +84,14 @@ enum RazerCommands {
         return DPIStages(active: active, values: values)
     }
 
+    /// Points at an existing stage without touching its value.
+    static func activateStage(_ device: RazerDevice, index: Int) throws {
+        var stages = try dpiStages(device)
+        guard index >= 1, index <= stages.values.count else { throw RazerError.deviceFailure }
+        stages.active = index
+        try writeDPIStages(device, active: index, values: stages.values)
+    }
+
     static func writeDPIStages(_ device: RazerDevice, active: Int, values: [Int]) throws {
         var arguments: [UInt8] = [
             0x01,
