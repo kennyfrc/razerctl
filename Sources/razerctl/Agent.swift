@@ -35,6 +35,7 @@ struct AgentState: Codable {
     var dpiX: Int?
     var dpiY: Int?
     var pollingHz: Int?
+    var connected: Bool?
     var updatedAt: Date
 
     static let file = Settings.directory.appendingPathComponent("state.json")
@@ -169,6 +170,12 @@ enum Agent {
 /// and records battery and DPI so the CLI can report them without permission.
 func runWatch() {
     Agent.logLine("agent started")
+    // Anything the last run recorded is stale until this run sees the mouse again.
+    if var previous = AgentState.load() {
+        previous.connected = false
+        previous.updatedAt = Date()
+        previous.save()
+    }
     var connected = false
     var permissionProblemLogged = false
     var applied = Settings()
@@ -180,7 +187,16 @@ func runWatch() {
                 Agent.logLine("no Input Monitoring grant; turn on razerctl in System Settings > Privacy & Security")
                 permissionProblemLogged = true
             }
-            if connected { Agent.logLine("device gone") }
+            if connected {
+                Agent.logLine("device gone")
+                // Keep the last readings but mark them stale, so the CLI does not present
+                // them as live values while the mouse is unplugged.
+                if var state = AgentState.load() {
+                    state.connected = false
+                    state.updatedAt = Date()
+                    state.save()
+                }
+            }
             connected = false
             applied = Settings()
             Thread.sleep(forTimeInterval: 5)
@@ -225,6 +241,7 @@ func runWatch() {
                 dpiX: dpi?.x,
                 dpiY: dpi?.y,
                 pollingHz: polling?.hz,
+                connected: true,
                 updatedAt: Date()
             )
             state.save()

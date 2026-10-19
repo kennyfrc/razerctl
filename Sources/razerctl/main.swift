@@ -97,6 +97,12 @@ func printTable(headers: [String], rows: [[String]]) {
     for row in rows { print(line(row)) }
 }
 
+/// Age of an agent reading, and whether the agent still sees the mouse.
+func agentAge(_ state: AgentState) -> String {
+    if state.connected == false { return "not connected, last seen \(Int(state.age))s ago" }
+    return "\(Int(state.age))s old"
+}
+
 func batteryText(_ percent: Int, charging: Bool?) -> String {
     "\(percent)%\(charging == true ? " (charging)" : "")"
 }
@@ -173,7 +179,7 @@ func runInfo(options: Options) throws {
         }
         if let x = state.dpiX, let y = state.dpiY { print("DPI:     \(x) x \(y)") }
         if let hz = state.pollingHz { print("Polling: \(hz) Hz") }
-        print("Source:  agent, \(Int(state.age))s old")
+        print("Source:  agent, \(agentAge(state))")
     }
 }
 
@@ -198,7 +204,7 @@ func runBattery(options: Options) throws {
             printJSON(object)
             return
         }
-        print("\(batteryText(percent, charging: state.charging)) (agent, \(Int(state.age))s old)")
+        print("\(batteryText(percent, charging: state.charging)) (agent, \(agentAge(state)))")
     }
 }
 
@@ -309,7 +315,7 @@ func runStatus(options: Options) {
         print("saved rate \(settings.polling.map { "\($0) Hz" } ?? "-")")
     }
     if let state = AgentState.load() {
-        print("agent saw  \(state.product) (\(state.productId)) \(Int(state.age))s ago")
+        print("agent saw  \(state.product) (\(state.productId)) \(agentAge(state))")
         if let percent = state.batteryPercent { print("battery    \(batteryText(percent, charging: state.charging))") }
         if let x = state.dpiX, let y = state.dpiY { print("dpi        \(x) x \(y)") }
         if let hz = state.pollingHz { print("polling    \(hz) Hz") }
@@ -359,7 +365,7 @@ func runDoctor(options: Options) {
             print("DPI:              \(dpi.x) x \(dpi.y)")
         }
     } else if let state = agentState() {
-        print("Latest agent read: \(state.product), battery \(state.batteryPercent.map(String.init) ?? "-")%, \(Int(state.age))s ago")
+        print("Latest agent read: \(state.product), battery \(state.batteryPercent.map(String.init) ?? "-")%, \(agentAge(state))")
     }
 
     print("Bluetooth:        \(bluetoothNote(for: control.first?.productId))")
@@ -422,7 +428,7 @@ func runSummary(options: Options) {
         if let percent = state.batteryPercent { battery = batteryText(percent, charging: state.charging) }
         if let x = state.dpiX, let y = state.dpiY { dpi = "\(x) x \(y)" }
         if let hz = state.pollingHz { polling = "\(hz) Hz" }
-        source = "agent, \(Int(state.age))s old"
+        source = "agent, \(agentAge(state))"
     } else {
         print("Razer mouse: not reachable (no permission, and no agent reading)")
         print(permissionHint())
