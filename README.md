@@ -7,6 +7,20 @@ It talks to the mouse over USB HID feature reports, so it needs no Razer Synapse
 kernel extension. Verified on a Razer Viper V3 Pro over both links: USB-C cable
 (`1532:00C0`) and the 2.4 GHz dongle (`1532:00C1`).
 
+## Quick start
+
+```sh
+make install                  # build, sign, install to ~/.local/bin/razerctl
+razerctl install              # background agent, so settings survive a reconnect
+razerctl setup                # check the install in order, prints the next step
+razerctl dpi 1000             # set and save sensitivity
+razerctl polling 125          # set and save report rate
+```
+
+Settings live in `~/.config/razerctl/mouse.yaml` and the agent reapplies them. The defaults
+below (1000 DPI, 125 Hz) are what felt right on a 120 Hz MacBook screen; 1000 Hz is the better
+default for desktop work.
+
 ## The Bluetooth question
 
 The Viper V3 Pro has no Bluetooth. Razer ships it with two links only:
@@ -126,12 +140,18 @@ afterwards. Reads during that window come back empty; wait a moment and retry.
 
 ```sh
 razerctl dpi 1000
-razerctl polling 1000
+razerctl polling 125      # a 60-120 Hz game; 1000 for desktop work
 ```
 
-1000 Hz is the right default on macOS. It is 1 ms per report, every game handles it, and
-the CPU cost stays low. Above 1000 Hz the gain is small and the cost is real: more USB
-traffic, more CPU, and faster battery drain over the wireless link.
+On macOS the polling rate changes more than latency. Pointer lock in a browser exposes the
+system's acceleration curve, which is evaluated per report, so a mouse at 1000 Hz can turn
+less than the same mouse at 125 Hz for the same physical stroke. Chromium 41352922 records
+that: pointer-lock movementX is wrong at 1000 Hz and correct at 125. A game that reads raw
+counts (pointer lock with `unadjustedMovement`) is immune, and then 1000 Hz is fine.
+
+1000 Hz is 1 ms per report and the right default for the desktop. Above 1000 Hz the gain is
+small and the cost is real: more USB traffic, more CPU, and faster battery drain. Apple
+Silicon Macs cap some devices at 500 Hz anyway.
 
 DPI is a personal value. Desktop work usually lands between 1200 and 1600; games often use
 800 to 1600 and scale the rest with in-game sensitivity, since eDPI = DPI x sensitivity.
