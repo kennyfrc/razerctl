@@ -27,6 +27,7 @@ USAGE
   razerctl uninstall               Remove the background agent
   razerctl watch                   Run the agent in the foreground
   razerctl status                  Show the agent state and saved settings
+  razerctl setup                   Check the install in order and print the next step
 
 OPTIONS
   --json          Machine readable output (info, battery, dpi, polling)
@@ -306,6 +307,69 @@ func runRaw(options: Options, arguments: [String]) throws {
     print("args:   \(reply.argumentsHex)")
 }
 
+/// Walks the install in the order that works: binary, agent, permission, device.
+func runSetup(options: Options) {
+    var next: [String] = []
+
+    func row(_ status: String, _ name: String, _ detail: String) {
+        let padding = String(repeating: " ", count: max(0, 12 - name.count))
+        print("  [\(status)] \(name)\(padding)\(detail)")
+    }
+
+    let installed = NSHomeDirectory() + "/.local/bin/razerctl"
+    if FileManager.default.fileExists(atPath: installed) {
+        row("ok", "binary", installed)
+    } else {
+        row("--", "binary", "not installed")
+        next.append("make install          build, sign, copy to ~/.local/bin")
+    }
+
+    if Agent.isInstalled && Agent.isRunning {
+        row("ok", "agent", "running (\(Agent.label))")
+    } else if Agent.isInstalled {
+        row("!!", "agent", "installed, not running")
+        next.append("launchctl kickstart -k gui/$(id -u)/\(Agent.label)")
+    } else {
+        row("--", "agent", "not installed")
+        next.append("razerctl install      install the agent; this also asks macOS for permission")
+    }
+
+    let state = AgentState.load()
+    if let state, state.connected == true, state.isFresh {
+        row("ok", "permission", "the agent is reading the mouse (\(Int(state.age))s ago)")
+    } else if Agent.isInstalled {
+        row("??", "permission", "no fresh reading from the agent")
+        next.append("turn on razerctl in System Settings > Privacy & Security > Input Monitoring")
+        next.append("launchctl kickstart -k gui/$(id -u)/\(Agent.label)   apply the new grant")
+    } else {
+        row("??", "permission", "unknown; something has to ask for it first")
+    }
+
+    let ids = Set(RazerDevice.interfaces().map { $0.productId }).sorted()
+    if ids.isEmpty {
+        row("--", "device", "no Razer USB device")
+        next.append("plug the dongle and turn the mouse on, or plug the USB-C cable")
+    } else {
+        let names = ids.map { String(format: "1532:%04X", $0) }.joined(separator: ", ")
+        row("ok", "device", names)
+    }
+
+    if let state, state.isFresh {
+        let battery = state.batteryPercent.map { "\($0)%" } ?? "-"
+        let dpi = state.dpiX.map { "\($0)" } ?? "-"
+        let polling = state.pollingHz.map { "\($0) Hz" } ?? "-"
+        row("ok", "settings", "dpi \(dpi), polling \(polling), battery \(battery)")
+    }
+
+    print("")
+    if next.isEmpty {
+        print("Ready. Try: razerctl dpi 1600")
+    } else {
+        print("Next:")
+        for step in next { print("  \(step)") }
+    }
+}
+
 func runStatus(options: Options) {
     print("agent      \(Agent.isInstalled ? (Agent.isRunning ? "running" : "installed, not running") : "not installed") (\(Agent.label))")
     print("config     \(Settings.file.path)")
@@ -507,6 +571,8 @@ do {
         runWatch()
     case "status":
         runStatus(options: options)
+    case "setup":
+        runSetup(options: options)
     default:
         fail("unknown command '\(command)' (try razerctl --help)")
     }

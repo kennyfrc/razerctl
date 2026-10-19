@@ -1,10 +1,11 @@
 # razerctl
 
 Small macOS CLI for Razer mice. It reads the battery, sets DPI and polling rate, and runs a
-small background agent that reapplies your settings when the mouse reconnects.
+background agent that reapplies your settings when the mouse reconnects.
 
 It talks to the mouse over USB HID feature reports, so it needs no Razer Synapse and no
-kernel extension. Verified on a Razer Viper V3 Pro (1532:00C0, wired).
+kernel extension. Verified on a Razer Viper V3 Pro over both links: USB-C cable
+(`1532:00C0`) and the 2.4 GHz dongle (`1532:00C1`).
 
 ## The Bluetooth question
 
@@ -21,17 +22,21 @@ Razer mice that do support Bluetooth, such as the Cobra Pro or the DeathAdder V2
 three-way switch underneath (2.4 GHz / Bluetooth / off). Those show up as a Bluetooth HID
 device instead of a USB one.
 
-\`razerctl bluetooth\` prints this for the attached model.
+`razerctl bluetooth` prints this for the attached model.
 
 ## Install
 
-\`\`\`sh
+```sh
 make install          # build, sign, copy to ~/.local/bin/razerctl
 razerctl install      # install and start the agent (LaunchAgent local.razerctl)
-\`\`\`
+razerctl setup        # check the install in order, print the next step
+```
 
-\`make install\` signs the binary with a fixed identifier and designated requirement
-(\`local.razerctl\`), so the Input Monitoring grant stays with \`razerctl\` across rebuilds.
+`make install` signs the binary with a fixed identifier and designated requirement
+(`local.razerctl`), so the Input Monitoring grant stays with `razerctl` across rebuilds.
+
+Full install order for a fresh machine, including the permission dance and what to run when a
+step does not stick: [SETUP.md](SETUP.md).
 
 ## Permission
 
@@ -39,17 +44,17 @@ macOS blocks opening a mouse interface until the process has Input Monitoring. T
 ways to satisfy it, and either one is enough:
 
 1. Give the agent its own grant. The system may deny the first request without a prompt.
-   Open System Settings > Privacy & Security > Input Monitoring, turn on \`razerctl\`, and
-   restart the agent: \`launchctl kickstart -k gui/$(id -u)/local.razerctl\`.
+   Open System Settings > Privacy & Security > Input Monitoring, turn on `razerctl`, and
+   restart the agent: `launchctl kickstart -k gui/$(id -u)/local.razerctl`.
 2. Give the app that runs your shell the grant (Terminal, iTerm, and so on).
 
 When the CLI has no grant, it reads what the agent last saw (up to five minutes old) and
-sends writes through the agent by saving them to the config file. \`razerctl status\` shows
+sends writes through the agent by saving them to the config file. `razerctl status` shows
 which source answered.
 
 ## Usage
 
-\`\`\`
+```
 razerctl                         summary: device, battery, DPI, polling, agent
 razerctl list                    Razer HID interfaces on the bus
 razerctl info                    name, firmware, serial, battery, DPI, polling
@@ -57,7 +62,7 @@ razerctl battery                 battery percentage and charging state
 razerctl dpi                     read DPI
 razerctl dpi 1600                set DPI and save it
 razerctl polling                 read polling rate
-razerctl polling 4000            set polling rate and save it
+razerctl polling 8000            set polling rate and save it
 razerctl raw 0x07 0x80 0x02      raw report (class, id, data size, args)
 razerctl doctor                  permissions, detection, live probe
 razerctl bluetooth               Bluetooth capability of this model
@@ -65,14 +70,15 @@ razerctl pair                    put the dongle in pairing mode
 razerctl install / uninstall     manage the agent
 razerctl watch                   run the agent in the foreground
 razerctl status                  agent state and saved settings
-\`\`\`
+razerctl setup                   check the install in order, name the next step
+```
 
-Read commands accept \`--json\`. \`--pid 0xC1\` picks one device when two are attached, and
-\`--txid\` overrides the transaction id byte.
+Read commands accept `--json`. `--pid 0xC1` picks one device when two are attached, and
+`--txid` overrides the transaction id byte.
 
 ## Going wireless
 
-There is no Bluetooth step. The mouse links to the small HyperPolling dongle:
+There is no Bluetooth step. The mouse links to the HyperPolling dongle:
 
 1. Plug the dongle into a USB port on the Mac, directly rather than through a hub.
 2. Turn the mouse on: press and hold the button underneath for two seconds.
@@ -80,32 +86,36 @@ There is no Bluetooth step. The mouse links to the small HyperPolling dongle:
 4. Run `razerctl list`. The product id changes from 0x00C0 (wired) to 0x00C1 (dongle).
 5. `razerctl polling 8000` reaches 8000 Hz on this link. Wired tops out at 1000 Hz.
 
-A new mouse and dongle are paired at the factory, so step 1 to 3 is all it takes. If the
+A new mouse and dongle are paired at the factory, so steps 1 to 3 are all it takes. If the
 dongle was paired to another mouse, plug it in with no cable attached and run
 `razerctl pair`, then repeat step 2.
 
+The dongle is USB-A, so a USB-C-only Mac needs a passive USB-C to USB-A adapter. The link runs
+at USB full speed, so any adapter carries it; a hub or dock may not carry 8000 reports per
+second, which shows up as polling falling back to 1000 Hz.
+
 ## The agent
 
-\`razerctl install\` writes \`~/Library/LaunchAgents/local.razerctl.plist\` and starts it. The
+`razerctl install` writes `~/Library/LaunchAgents/local.razerctl.plist` and starts it. The
 agent:
 
 - reapplies saved DPI and polling when the mouse connects, for example after you switch it
   off and on;
-- applies a change within five seconds after \`razerctl dpi\` or \`razerctl polling\` saves it;
+- applies a change within five seconds after `razerctl dpi` or `razerctl polling` saves it;
 - records battery, DPI and polling in a state file for the CLI to read.
 
 | Path | Contents |
 |---|---|
-| \`~/.config/razerctl/config.json\` | saved DPI and polling rate |
-| \`~/.config/razerctl/state.json\` | last readings from the agent |
-| \`~/Library/LaunchAgents/local.razerctl.plist\` | the LaunchAgent |
-| \`~/Library/Logs/razerctl.log\` | one line per event, with a timestamp |
+| `~/.config/razerctl/config.json` | saved DPI and polling rate |
+| `~/.config/razerctl/state.json` | last readings from the agent |
+| `~/Library/LaunchAgents/local.razerctl.plist` | the LaunchAgent |
+| `~/Library/Logs/razerctl.log` | one line per event, with a timestamp |
 
 ## How it works
 
 Razer's protocol is a 90-byte request and response message:
 
-\`\`\`
+```
 [0]      status
 [1]      transaction id (0x1F on current mice)
 [2..3]   remaining packets
@@ -116,10 +126,11 @@ Razer's protocol is a 90-byte request and response message:
 [8..87]  arguments
 [88]     checksum (xor of bytes 2..87)
 [89]     reserved
-\`\`\`
+```
 
-The CLI writes it as a HID feature report, waits 31 ms, then reads the reply feature report.
-If the reply is BUSY or belongs to an older command, it reads again.
+The CLI writes it as a HID feature report, waits for the reply, then reads it back. The wait
+is 31 ms on a cable and 60 ms over the dongle; a shorter wait returns an empty reply. If the
+reply is BUSY or belongs to an older command, it reads again.
 
 Commands, all from OpenRazer's driver:
 
@@ -143,10 +154,10 @@ answers the extended ones, which reach 8000 Hz. The CLI tries extended first, th
 
 On 2026-10-19, against the attached Viper V3 Pro:
 
-- battery read 91%, charging false;
-- DPI read 3200, set to 1600 and read back 1600, then set back to 3200;
-- polling read 1000 Hz, set to 500 and read back 500, then set back to 1000;
-- firmware and serial read over the same channel.
+- cable link `0x00C0`: battery 91%, DPI set and read back, polling 1000 Hz;
+- dongle link `0x00C1`: battery 95%, DPI 1600, polling 8000 Hz;
+- firmware and serial read over the same channel;
+- writes survive a reconnect, because the agent reapplies the saved config.
 
 ## Credits
 
