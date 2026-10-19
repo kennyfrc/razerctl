@@ -124,6 +124,29 @@ enum RazerCommands {
 
     static let supportedRates = [125, 250, 500, 1000, 2000, 4000, 8000]
 
+    // MARK: - Dongle pairing
+
+    /// Puts the HyperPolling dongle into pairing mode, then binds it to a mouse product id.
+    /// Ported from razer_attr_write_hyperpolling_wireless_dongle_pair(). Only needed when
+    /// the dongle lost its factory pairing; a new mouse and dongle already match.
+    static func pairDongle(_ device: RazerDevice, mouseProductId: Int = 0x00C0) throws {
+        _ = try device.send(
+            RazerReport(commandClass: 0x00, commandId: 0x46, dataSize: 0x01, arguments: [0x01])
+        )
+        _ = try device.send(
+            RazerReport(
+                commandClass: 0x00,
+                commandId: 0x41,
+                dataSize: 0x03,
+                arguments: [
+                    0x01,
+                    UInt8((mouseProductId >> 8) & 0xFF),
+                    UInt8(mouseProductId & 0xFF),
+                ]
+            )
+        )
+    }
+
     static func extendedMask(for hz: Int) -> UInt8? {
         switch hz {
         case 8000: return 0x01

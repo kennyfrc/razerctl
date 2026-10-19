@@ -22,6 +22,7 @@ USAGE
                                    Send a raw Razer report, for protocol work
   razerctl doctor                  Permissions, detection, and a live probe
   razerctl bluetooth               Whether this model can use Bluetooth
+  razerctl pair                    Put the dongle in pairing mode (plug it in first)
   razerctl install                 Install the background agent (local.razerctl)
   razerctl uninstall               Remove the background agent
   razerctl watch                   Run the agent in the foreground
@@ -267,6 +268,16 @@ func runPolling(options: Options, argument: String?) throws {
     }
 }
 
+func runPair(options: Options) throws {
+    var dongleOptions = options
+    if dongleOptions.productId == nil { dongleOptions.productId = 0x00C1 }
+    guard let dongle = try? openDevice(dongleOptions) else {
+        fail("No dongle found at 1532:00C1. Plug the HyperPolling dongle in first.")
+    }
+    try RazerCommands.pairDongle(dongle)
+    print("Pairing mode sent to the dongle. Turn the mouse on and keep it close.")
+}
+
 func runRaw(options: Options, arguments: [String]) throws {
     guard arguments.count >= 3,
           let commandClass = parseNumber(arguments[0]),
@@ -478,6 +489,8 @@ do {
         runDoctor(options: options)
     case "bluetooth", "bt":
         runBluetooth()
+    case "pair":
+        try runPair(options: options)
     case "install":
         try Agent.install()
         print("Installed \(Agent.label). Log: \(Agent.log.path)")

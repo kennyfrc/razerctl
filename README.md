@@ -61,6 +61,7 @@ razerctl polling 4000            set polling rate and save it
 razerctl raw 0x07 0x80 0x02      raw report (class, id, data size, args)
 razerctl doctor                  permissions, detection, live probe
 razerctl bluetooth               Bluetooth capability of this model
+razerctl pair                    put the dongle in pairing mode
 razerctl install / uninstall     manage the agent
 razerctl watch                   run the agent in the foreground
 razerctl status                  agent state and saved settings
@@ -68,6 +69,20 @@ razerctl status                  agent state and saved settings
 
 Read commands accept \`--json\`. \`--pid 0xC1\` picks one device when two are attached, and
 \`--txid\` overrides the transaction id byte.
+
+## Going wireless
+
+There is no Bluetooth step. The mouse links to the small HyperPolling dongle:
+
+1. Plug the dongle into a USB port on the Mac, directly rather than through a hub.
+2. Turn the mouse on: press and hold the button underneath for two seconds.
+3. Unplug the USB-C cable. The mouse switches to the 2.4 GHz link.
+4. Run `razerctl list`. The product id changes from 0x00C0 (wired) to 0x00C1 (dongle).
+5. `razerctl polling 8000` reaches 8000 Hz on this link. Wired tops out at 1000 Hz.
+
+A new mouse and dongle are paired at the factory, so step 1 to 3 is all it takes. If the
+dongle was paired to another mouse, plug it in with no cable attached and run
+`razerctl pair`, then repeat step 2.
 
 ## The agent
 
