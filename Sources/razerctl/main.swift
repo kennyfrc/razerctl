@@ -28,6 +28,8 @@ USAGE
   razerctl watch                   Run the agent in the foreground
   razerctl status                  Show the agent state and saved settings
   razerctl setup                   Check the install in order and print the next step
+  razerctl ask "<text>"            Plain language: "connect this mouse", "set dpi to 1600"
+  razerctl intents                 List the phrases the CLI understands, with examples
 
 OPTIONS
   --json          Machine readable output (info, battery, dpi, polling)
@@ -507,6 +509,98 @@ func runSummary(options: Options) {
     print("agent       \(Agent.isInstalled ? (Agent.isRunning ? "running" : "installed, not running") : "not installed") (\(Agent.label))")
 }
 
+// MARK: - Plain language
+
+func runConnectGuide(options: Options) {
+    let ids = Set(RazerDevice.interfaces().map { $0.productId }).sorted()
+    if ids.isEmpty {
+        print("The mouse is not on the bus yet. Three steps:")
+        print("  1. Plug the dongle into the Mac, directly rather than through a hub.")
+        print("  2. Press and hold the button underneath the mouse for two seconds.")
+        print("  3. Run: razerctl")
+        print("The dongle is USB-A, so a USB-C-only Mac needs an adapter.")
+        return
+    }
+
+    if let state = agentState(), state.connected == true {
+        let battery = state.batteryPercent.map { "\($0)%" } ?? "-"
+        let dpi = state.dpiX.map { "\($0)" } ?? "-"
+        let polling = state.pollingHz.map { "\($0) Hz" } ?? "-"
+        print("Linked: \(state.product) (\(state.productId))")
+        print("  battery \(battery), dpi \(dpi), polling \(polling)")
+        if state.productId == "1532:00C0" {
+            print("That is the cable link. For wireless: plug the dongle, turn the mouse on,")
+            print("then unplug the cable. The id becomes 1532:00C1.")
+        }
+        return
+    }
+
+    print("A Razer device is attached, but the agent has no fresh reading.")
+    print("Run: razerctl setup")
+}
+
+func runAsk(options: Options, text: String) throws {
+    let match = IntentParser.match(text)
+    if options.json {
+        var object: [String: Any] = ["intent": match.intent.rawValue, "score": match.score]
+        if let dpi = match.dpi { object["dpi"] = dpi }
+        if let polling = match.polling { object["polling"] = polling }
+        printJSON(object)
+        return
+    }
+
+    print("intent: \(match.intent.rawValue)")
+    switch match.intent {
+    case .connect:
+        runConnectGuide(options: options)
+    case .status:
+        runSummary(options: options)
+    case .battery:
+        try runBattery(options: options)
+    case .setDPI:
+        if let dpi = match.dpi {
+            try runDPI(options: options, argument: String(dpi))
+        } else {
+            try runDPI(options: options, argument: nil)
+            print("Say the number too: razerctl dpi <100-35000>")
+        }
+    case .setPolling:
+        if let hz = match.polling {
+            try runPolling(options: options, argument: String(hz))
+        } else {
+            try runPolling(options: options, argument: nil)
+            print("Say the rate too: razerctl polling <\(RazerCommands.supportedRates.map(String.init).joined(separator: "/"))>")
+        }
+    case .bluetooth:
+        runBluetooth()
+    case .pair:
+        try runPair(options: options)
+    case .diagnose:
+        runDoctor(options: options)
+    }
+}
+
+func runIntents(options: Options) {
+    if options.json {
+        let rows: [[String: Any]] = Intent.allCases.map { intent in
+            [
+                "intent": intent.rawValue,
+                "summary": intent.summary,
+                "examples": intent.examples,
+            ]
+        }
+        let data = try? JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys])
+        if let data, let text = String(data: data, encoding: .utf8) { print(text) }
+        return
+    }
+    for intent in Intent.allCases {
+        print(intent.rawValue)
+        print("  " + intent.summary)
+        print("  e.g. " + intent.examples.joined(separator: "  |  "))
+        print("")
+    }
+}
+
 // MARK: - Entry point
 
 var arguments = Array(CommandLine.arguments.dropFirst())
@@ -573,6 +667,15 @@ do {
         runStatus(options: options)
     case "setup":
         runSetup(options: options)
+    case "ask":
+        var text = positional.dropFirst().joined(separator: " ")
+        if text.isEmpty, let line = readLine(strippingNewline: true) { text = line }
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else {
+            fail("ask needs a sentence, for example: razerctl ask 'connect this mouse'")
+        }
+        try runAsk(options: options, text: text)
+    case "intents":
+        runIntents(options: options)
     default:
         fail("unknown command '\(command)' (try razerctl --help)")
     }

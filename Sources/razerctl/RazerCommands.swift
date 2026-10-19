@@ -96,9 +96,14 @@ enum RazerCommands {
     /// Extended command (0x00/0xC0) covers 125 Hz to 8000 Hz. The standard command
     /// (0x00/0x85) tops out at 1000 Hz and is what wired-only models answer.
     static func pollingRate(_ device: RazerDevice) throws -> PollingSetting {
-        if let reply = try? device.send(RazerReport(commandClass: 0x00, commandId: 0xC0, dataSize: 0x01)),
-           let hz = pollingRateFromExtended(reply.arguments[1]) {
-            return PollingSetting(hz: hz, family: "extended")
+        // The dongle can answer BUSY right after a settings write, so give this read a
+        // second chance before falling back to the standard command.
+        for attempt in 0..<2 {
+            if let reply = try? device.send(RazerReport(commandClass: 0x00, commandId: 0xC0, dataSize: 0x01)),
+               let hz = pollingRateFromExtended(reply.arguments[1]) {
+                return PollingSetting(hz: hz, family: "extended")
+            }
+            if attempt == 0 { usleep(120_000) }
         }
         if let reply = try? device.send(RazerReport(commandClass: 0x00, commandId: 0x85, dataSize: 0x01)),
            let hz = pollingRateFromStandard(reply.arguments[0]) {

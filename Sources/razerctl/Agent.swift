@@ -231,6 +231,8 @@ func runWatch() {
         }
         if !noted.isEmpty {
             Agent.logLine("applied \(noted.joined(separator: ", "))")
+            // Let the link settle before reading values back, or the read comes back BUSY.
+            Thread.sleep(forTimeInterval: 0.4)
             lastBatteryRead = .distantPast
         }
 

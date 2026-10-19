@@ -71,10 +71,39 @@ razerctl install / uninstall     manage the agent
 razerctl watch                   run the agent in the foreground
 razerctl status                  agent state and saved settings
 razerctl setup                   check the install in order, name the next step
+razerctl ask "connect this mouse"  plain language, mapped to the right command
+razerctl intents                 list the phrases it understands, with examples
 ```
 
 Read commands accept `--json`. `--pid 0xC1` picks one device when two are attached, and
 `--txid` overrides the transaction id byte.
+
+## Plain language
+
+`razerctl ask` takes a sentence instead of a command. It matches keywords, extracts the
+number, then calls the command you would have typed. No model, no network.
+
+```
+$ razerctl ask "hey i want to connect this mouse to my macbook how do i do that"
+intent: connect
+Linked: Razer Viper V3 Pro (2.4 GHz dongle) (1532:00C1)
+  battery 95%, dpi 1600, polling 8000 Hz
+
+$ razerctl ask "set dpi to 1600"
+intent: set_dpi
+Saved DPI 1600. The agent applies it within a few seconds.
+
+$ razerctl ask "max out the polling rate"
+intent: set_polling
+Saved polling 8000 Hz. The agent applies it within a few seconds.
+```
+
+Recognised intents: `connect`, `status`, `battery`, `set_dpi`, `set_polling`,
+`bluetooth`, `pair`, `diagnose`. `razerctl intents` prints the examples, and
+`razerctl intents --json` prints them as a schema for a script or an agent. A sentence with
+no keywords falls to `diagnose`, which runs the checks and names the next step.
+
+Piping works too: `echo "how much battery is left" | razerctl ask`.
 
 ## Going wireless
 
@@ -90,9 +119,10 @@ A new mouse and dongle are paired at the factory, so steps 1 to 3 are all it tak
 dongle was paired to another mouse, plug it in with no cable attached and run
 `razerctl pair`, then repeat step 2.
 
-The dongle is USB-A, so a USB-C-only Mac needs a passive USB-C to USB-A adapter. The link runs
-at USB full speed, so any adapter carries it; a hub or dock may not carry 8000 reports per
-second, which shows up as polling falling back to 1000 Hz.
+The dongle is USB-A, so a USB-C-only Mac needs something in between: the included cable, or a
+passive USB-C to USB-A adapter. Any chain that makes `1532:00C1` appear is fine, because the link runs at USB
+full speed. A hub or dock may not carry 8000 reports per second, which shows up as polling
+falling back to 1000 Hz.
 
 ## The agent
 

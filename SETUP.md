@@ -99,8 +99,8 @@ app that runs your shell (Terminal, iTerm), you can skip the agent:
 
 ## Notes
 
-- The dongle is USB-A. A passive USB-C to USB-A adapter is enough, and the link runs at
-  USB full speed, so nothing faster is needed. An 8000 Hz reading proves the adapter is
-  not a bottleneck.
+- The dongle is USB-A. The included cable or a passive USB-C to USB-A adapter is enough,
+  and the link runs at USB full speed, so nothing faster is needed. An 8000 Hz reading
+  proves the chain is not a bottleneck.
 - Rebuilds keep the Input Monitoring grant because the signature uses a fixed identifier
   and designated requirement instead of a hash of the build.
