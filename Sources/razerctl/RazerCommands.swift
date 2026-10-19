@@ -211,6 +211,48 @@ enum RazerCommands {
 
     static let supportedRates = [125, 250, 500, 1000, 2000, 4000, 8000]
 
+    // MARK: - Power behaviour
+
+    /// Seconds of idle before the mouse sleeps. OpenRazer clamps it to 60..900.
+    static func idleTime(_ device: RazerDevice) throws -> Int {
+        let reply = try device.send(RazerReport(commandClass: 0x07, commandId: 0x83, dataSize: 0x02))
+        return (Int(reply.arguments[0]) << 8) | Int(reply.arguments[1])
+    }
+
+    static func setIdleTime(_ device: RazerDevice, seconds: Int) throws {
+        let clamped = min(max(seconds, 60), 900)
+        _ = try device.send(RazerReport(
+            commandClass: 0x07,
+            commandId: 0x03,
+            dataSize: 0x02,
+            arguments: [UInt8((clamped >> 8) & 0xFF), UInt8(clamped & 0xFF)]
+        ))
+    }
+
+    /// The device stores the low-battery warning as 0..255 of full scale, so 0x0C is about
+    /// 5% and 0x3F about 25%. The CLI speaks percent and converts.
+    static func lowBatteryPercent(_ device: RazerDevice) throws -> Int {
+        let reply = try device.send(RazerReport(commandClass: 0x07, commandId: 0x81, dataSize: 0x01))
+        return Int((Double(reply.arguments[0]) * 100 / 255).rounded())
+    }
+
+    static func setLowBatteryPercent(_ device: RazerDevice, percent: Int) throws {
+        let wanted = (Double(percent) * 255 / 100).rounded()
+        let raw = UInt8(min(max(wanted, 12), 63))
+        _ = try device.send(RazerReport(
+            commandClass: 0x07,
+            commandId: 0x01,
+            dataSize: 0x01,
+            arguments: [raw]
+        ))
+    }
+
+    /// 0x00 is normal, 0x03 is driver mode, which is what Synapse switches the mouse into.
+    static func deviceMode(_ device: RazerDevice) throws -> Int {
+        let reply = try device.send(RazerReport(commandClass: 0x00, commandId: 0x84, dataSize: 0x02))
+        return Int(reply.arguments[0])
+    }
+
     // MARK: - Dongle pairing
 
     /// Puts the HyperPolling dongle into pairing mode, then binds it to a mouse product id.

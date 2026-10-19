@@ -158,6 +158,32 @@ Silicon Macs cap some devices at 500 Hz anyway.
 DPI is a personal value. Desktop work usually lands between 1200 and 1600; games often use
 800 to 1600 and scale the rest with in-game sensitivity, since eDPI = DPI x sensitivity.
 
+## Power behaviour
+
+```sh
+razerctl power                  # battery, sleep timeout, low-battery threshold, mode
+razerctl sleep 300              # idle seconds before the mouse sleeps (60-900)
+razerctl low-battery 15         # battery level that starts the warning (5-25)
+```
+
+Both live in the spec, so the agent reapplies them after a reconnect. The mouse stores the
+low-battery threshold as 0-255 of full scale, so the CLI converts percent both ways
+(`0x0C` is about 5%, `0x3F` about 25%).
+
+`razerctl power` also prints the device mode: `00` is normal, `03` is driver mode, which is
+what Razer's software switches the mouse into.
+
+## Menu bar
+
+`razerctl install` also installs `local.razerctl.menubar`, a menu bar item that appears
+while the mouse is connected and hides when it is not. It shows the battery in the bar and
+gives one-click DPI, polling, sleep, low-battery and side-button settings, plus "Open config"
+and "Open log".
+
+It needs no permissions of its own: it reads the agent's state file and writes
+`mouse.yaml`, and the agent does the talking to the device. Run it in the foreground with
+`razerctl menubar`, or remove it with `razerctl uninstall-menubar`.
+
 ## Side buttons
 
 Razer's HID protocol has no button remap command, and there is no Synapse for Mac for this

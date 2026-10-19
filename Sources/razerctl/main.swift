@@ -22,6 +22,11 @@ USAGE
   razerctl stages [values...]      Show or set the DPI stage list (--active N)
   razerctl match [dpi]             Match the Logitech DPI, read from mxctl
   razerctl cursor                  Print the cursor position, for a distance test
+  razerctl power                   Battery, sleep timeout, low-battery threshold, mode
+  razerctl menubar                 Run the menu bar item in the foreground
+  razerctl install-menubar         Menu bar item as a LaunchAgent (install does this too)
+  razerctl sleep <seconds>         Idle seconds before the mouse sleeps (60-900)
+  razerctl low-battery <percent>   Battery level that starts the warning (5-25)
   razerctl buttons                 Show what the side buttons do
   razerctl buttons side off|back   Swallow the side buttons, or give them back
   razerctl raw <class> <id> <size> [hex bytes...]
@@ -70,7 +75,17 @@ func printJSON(_ object: [String: Any]) {
     }
 }
 
-func openDevice(_ options: Options) throws -> RazerDevice {
+/// Holds the device lock for the life of the process, so the agent cannot interleave reads
+/// with ours and shift the reply queue.
+var processDeviceLock: DeviceLock?
+
+func openDevice(_ options: Options, waitMs: Int = 2000) throws -> RazerDevice {
+    if processDeviceLock == nil {
+        guard let lock = DeviceLock.acquire(timeoutMs: waitMs) else {
+            throw CLIError("the mouse is busy with the agent. Retry in a moment, or read the agent's saved values with razerctl status")
+        }
+        processDeviceLock = lock
+    }
     let device = try RazerDevice.open(productId: options.productId)
     if let txid = options.transactionId { device.transactionId = txid }
     return device
@@ -251,6 +266,10 @@ func runDPI(options: Options, argument: String?) throws {
     } catch RazerError.permissionDenied {
         guard Agent.isInstalled else { throw RazerError.permissionDenied }
         print("Saved DPI \(value). The agent applies it within a few seconds.")
+    } catch {
+        // Busy with the agent, or the dongle did not answer: the spec is saved either way,
+        // and the agent applies it on its next pass.
+        print("Saved DPI \(value). The agent applies it within a few seconds.")
     }
 }
 
@@ -282,6 +301,8 @@ func runPolling(options: Options, argument: String?) throws {
         print("Polling rate set to \(polling.hz) Hz")
     } catch RazerError.permissionDenied {
         guard Agent.isInstalled else { throw RazerError.permissionDenied }
+        print("Saved polling \(hz) Hz. The agent applies it within a few seconds.")
+    } catch {
         print("Saved polling \(hz) Hz. The agent applies it within a few seconds.")
     }
 }
@@ -375,6 +396,65 @@ func logitechDPI() -> Int? {
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     let text = String(decoding: data, as: UTF8.self)
     return text.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.first
+}
+
+/// Battery and the two power behaviours the mouse also exposes.
+func runPower(options: Options) throws {
+    if let device = try? openDevice(options) {
+        let battery = try? RazerCommands.battery(device)
+        let idle = try? RazerCommands.idleTime(device)
+        let low = try? RazerCommands.lowBatteryPercent(device)
+        let mode = try? RazerCommands.deviceMode(device)
+        if options.json {
+            var object: [String: Any] = [:]
+            if let battery { object["percent"] = battery.percent; object["charging"] = battery.charging ?? false }
+            if let idle { object["sleepSeconds"] = idle }
+            if let low { object["lowBatteryPercent"] = low }
+            if let mode { object["mode"] = mode }
+            printJSON(object)
+            return
+        }
+        if let battery { print("battery:      \(batteryText(battery.percent, charging: battery.charging))") }
+        if let idle { print("sleep:        \(idle)s idle before the mouse sleeps") }
+        if let low { print("low battery:  warns at \(low)%") }
+        if let mode { print("mode:         \(mode == 0x03 ? "driver (Synapse)" : mode == 0x00 ? "normal" : "0x\(String(format: "%02X", mode))")") }
+        return
+    }
+
+    guard let state = agentState() else {
+        fail(RazerError.permissionDenied.description)
+    }
+    let battery = state.batteryPercent.map { "\($0)%" } ?? "-"
+    print("battery:      \(battery) (agent, \(agentAge(state)))")
+    print("sleep:        \(state.idleSeconds.map { "\($0)s" } ?? "-")")
+    print("low battery:  \(state.lowBatteryPercent.map { "\($0)%" } ?? "-")")
+    print("mode:         \(state.deviceMode.map { $0 == 0x03 ? "driver" : $0 == 0x00 ? "normal" : "0x\(String(format: "%02X", $0))" } ?? "-")")
+}
+
+func runSleep(options: Options, argument: String?) throws {
+    guard let argument, let seconds = Int(argument) else {
+        if let state = agentState() { print("\(state.idleSeconds.map(String.init) ?? "-")s (agent)") }
+        print("use: razerctl sleep <60-900>")
+        return
+    }
+    guard seconds >= 60, seconds <= 900 else { fail("sleep takes 60 to 900 seconds") }
+    var resource = MouseResource.load() ?? MouseResource()
+    resource.spec.idleSeconds = seconds
+    try resource.save()
+    print("Saved sleep \(seconds)s. The agent applies it within a few seconds.")
+}
+
+func runLowBattery(options: Options, argument: String?) throws {
+    guard let argument, let percent = Int(argument) else {
+        if let state = agentState() { print("\(state.lowBatteryPercent.map { "\($0)%" } ?? "-") (agent)") }
+        print("use: razerctl low-battery <5-25>")
+        return
+    }
+    guard percent >= 5, percent <= 25 else { fail("low-battery takes 5 to 25 percent") }
+    var resource = MouseResource.load() ?? MouseResource()
+    resource.spec.lowBatteryPercent = percent
+    try resource.save()
+    print("Saved low battery \(percent)%. The agent applies it within a few seconds.")
 }
 
 /// Side buttons: an OS-level tap, because Razer's protocol has no button remap.
@@ -830,6 +910,12 @@ do {
         try runMatch(options: options, argument: positional.count > 1 ? positional[1] : nil)
     case "cursor":
         runCursor(options: options)
+    case "power":
+        try runPower(options: options)
+    case "sleep":
+        try runSleep(options: options, argument: positional.count > 1 ? positional[1] : nil)
+    case "low-battery":
+        try runLowBattery(options: options, argument: positional.count > 1 ? positional[1] : nil)
     case "buttons":
         try runButtons(options: options, arguments: Array(positional.dropFirst()))
     case "rawinput":
@@ -845,9 +931,20 @@ do {
     case "install":
         try Agent.install()
         print("Installed \(Agent.label). Log: \(Agent.log.path)")
+        try MenuBarAgent.install()
+        print("Installed \(MenuBarAgent.label). The item appears while the mouse is connected.")
     case "uninstall":
         try Agent.uninstall()
-        print("Removed \(Agent.label).")
+        MenuBarAgent.uninstall()
+        print("Removed \(Agent.label) and \(MenuBarAgent.label).")
+    case "menubar":
+        runMenuBar()
+    case "install-menubar":
+        try MenuBarAgent.install()
+        print("Installed \(MenuBarAgent.label).")
+    case "uninstall-menubar":
+        MenuBarAgent.uninstall()
+        print("Removed \(MenuBarAgent.label).")
     case "watch":
         runWatch()
     case "status":

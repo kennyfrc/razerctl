@@ -7,6 +7,8 @@ struct Settings: Codable, Equatable {
     var polling: Int?
     var stage: Int?
     var buttonsSide: String?
+    var idleSeconds: Int?
+    var lowBatteryPercent: Int?
 
     static let directory = MouseResource.directory
     static let file = MouseResource.file
@@ -17,7 +19,9 @@ struct Settings: Codable, Equatable {
             dpi: resource.spec.dpi,
             polling: resource.spec.pollingHz,
             stage: resource.spec.stage,
-            buttonsSide: resource.spec.buttonsSide
+            buttonsSide: resource.spec.buttonsSide,
+            idleSeconds: resource.spec.idleSeconds,
+            lowBatteryPercent: resource.spec.lowBatteryPercent
         )
     }
 }
@@ -50,6 +54,9 @@ struct AgentState: Codable {
     var activeStage: Int?
     var sideButtons: String?
     var accessibility: String?
+    var idleSeconds: Int?
+    var lowBatteryPercent: Int?
+    var deviceMode: Int?
     var phase: String?
     var conditions: [Condition]?
     var updatedAt: Date
@@ -226,7 +233,14 @@ func runWatch() {
             }
         }
 
+        // The CLI opens the same HID device; without this lock the two reply queues interleave
+        // and every command after that reads the previous answer.
+        guard let deviceLock = DeviceLock.acquire(timeoutMs: 1500) else {
+            Thread.sleep(forTimeInterval: 0.3)
+            continue
+        }
         guard let device = try? RazerDevice.open() else {
+            deviceLock.release()
             if !HIDAccess.isGranted, !permissionProblemLogged {
                 Agent.logLine("no Input Monitoring grant; turn on razerctl in System Settings > Privacy & Security")
                 permissionProblemLogged = true
@@ -246,6 +260,7 @@ func runWatch() {
             Thread.sleep(forTimeInterval: 5)
             continue
         }
+        defer { deviceLock.release() }
         permissionProblemLogged = false
 
         if !connected {
@@ -305,6 +320,30 @@ func runWatch() {
                 Agent.logLine("polling \(polling) failed (\(error)), retrying")
             }
         }
+        if let seconds = settings.idleSeconds, seconds != applied.idleSeconds {
+            do {
+                try RazerCommands.setIdleTime(device, seconds: seconds)
+                noted.append("sleep \(seconds)s")
+                applied.idleSeconds = seconds
+            } catch RazerError.notSupported {
+                applied.idleSeconds = seconds
+                Agent.logLine("sleep \(seconds)s not supported on this link")
+            } catch {
+                Agent.logLine("sleep \(seconds)s failed (\(error)), retrying")
+            }
+        }
+        if let percent = settings.lowBatteryPercent, percent != applied.lowBatteryPercent {
+            do {
+                try RazerCommands.setLowBatteryPercent(device, percent: percent)
+                noted.append("low battery \(percent)%")
+                applied.lowBatteryPercent = percent
+            } catch RazerError.notSupported {
+                applied.lowBatteryPercent = percent
+                Agent.logLine("low battery \(percent)% not supported on this link")
+            } catch {
+                Agent.logLine("low battery \(percent)% failed (\(error)), retrying")
+            }
+        }
         if !noted.isEmpty {
             Agent.logLine("applied \(noted.joined(separator: ", "))")
             // Let the link settle before reading values back, or the read comes back BUSY.
@@ -317,6 +356,9 @@ func runWatch() {
             let dpi = try? RazerCommands.dpi(device)
             let activeStage = (try? RazerCommands.dpiStages(device))?.active
             let polling = try? RazerCommands.pollingRate(device)
+            let idle = try? RazerCommands.idleTime(device)
+            let lowBattery = try? RazerCommands.lowBatteryPercent(device)
+            let mode = try? RazerCommands.deviceMode(device)
             let state = AgentState(
                 product: RazerDevice.describe(productId: device.productId, productName: device.productName),
                 productId: String(format: "1532:%04X", device.productId),
@@ -329,6 +371,9 @@ func runWatch() {
                 activeStage: activeStage,
                 sideButtons: sideFiltering ? "off" : "back",
                 accessibility: ButtonFilter.hasAccessibility ? "granted" : "denied",
+                idleSeconds: idle,
+                lowBatteryPercent: lowBattery,
+                deviceMode: mode,
                 updatedAt: Date()
             )
             state.save()

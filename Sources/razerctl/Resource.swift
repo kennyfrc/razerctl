@@ -11,6 +11,10 @@ struct MouseSpec: Codable, Equatable {
     /// "off" swallows the side buttons at the system level; "back" leaves them as
     /// back/forward. Razer's HID protocol has no button remap, so the agent does it.
     var buttonsSide: String?
+    /// Seconds of idle before the mouse sleeps: 60 to 900.
+    var idleSeconds: Int?
+    /// Battery percentage where the mouse starts warning: 5 to 25.
+    var lowBatteryPercent: Int?
 }
 
 struct MouseResource: Equatable {
@@ -69,7 +73,11 @@ struct MouseResource: Equatable {
 
         if let spec = dictionary["spec"] {
             guard let map = spec as? [String: Any] else { throw CLIError("spec must be a map") }
-            try rejectUnknown(map, allowed: ["dpi", "pollingHz", "stage", "buttons"], at: "spec")
+            try rejectUnknown(
+                map,
+                allowed: ["dpi", "pollingHz", "stage", "buttons", "idleSeconds", "lowBatteryPercent"],
+                at: "spec"
+            )
 
             if let value = try integer(map["dpi"], field: "spec.dpi") {
                 guard value >= RazerCommands.dpiMin, value <= RazerCommands.dpiMax else {
@@ -92,6 +100,18 @@ struct MouseResource: Equatable {
                     }
                     resource.spec.buttonsSide = text
                 }
+            }
+            if let value = try integer(map["idleSeconds"], field: "spec.idleSeconds") {
+                guard value >= 60, value <= 900 else {
+                    throw CLIError("spec.idleSeconds must be between 60 and 900")
+                }
+                resource.spec.idleSeconds = value
+            }
+            if let value = try integer(map["lowBatteryPercent"], field: "spec.lowBatteryPercent") {
+                guard value >= 5, value <= 25 else {
+                    throw CLIError("spec.lowBatteryPercent must be between 5 and 25")
+                }
+                resource.spec.lowBatteryPercent = value
             }
             if let value = try integer(map["pollingHz"], field: "spec.pollingHz") {
                 guard RazerCommands.supportedRates.contains(value) else {
@@ -137,6 +157,8 @@ struct MouseResource: Equatable {
         lines.append("  stage: \(spec.stage.map(String.init) ?? "null")")
         lines.append("  buttons:")
         lines.append("    side: \(spec.buttonsSide ?? "back")")
+        lines.append("  idleSeconds: \(spec.idleSeconds.map(String.init) ?? "null")")
+        lines.append("  lowBatteryPercent: \(spec.lowBatteryPercent.map(String.init) ?? "null")")
         return lines.joined(separator: "\n") + "\n"
     }
 }
