@@ -39,8 +39,6 @@ USAGE
   razerctl watch                   Run the agent in the foreground
   razerctl status                  Show the agent state and saved settings
   razerctl setup                   Check the install in order and print the next step
-  razerctl ask "<text>"            Plain language: "connect this mouse", "set dpi to 1600"
-  razerctl intents                 List the phrases the CLI understands, with examples
 
 OPTIONS
   --json          Machine readable output (info, battery, dpi, polling)
@@ -794,72 +792,6 @@ func runConnectGuide(options: Options) {
     print("Run: razerctl setup")
 }
 
-func runAsk(options: Options, text: String) throws {
-    let match = IntentParser.match(text)
-    if options.json {
-        var object: [String: Any] = ["intent": match.intent.rawValue, "score": match.score]
-        if let dpi = match.dpi { object["dpi"] = dpi }
-        if let polling = match.polling { object["polling"] = polling }
-        printJSON(object)
-        return
-    }
-
-    print("intent: \(match.intent.rawValue)")
-    switch match.intent {
-    case .connect:
-        runConnectGuide(options: options)
-    case .status:
-        runSummary(options: options)
-    case .battery:
-        try runBattery(options: options)
-    case .setDPI:
-        if let dpi = match.dpi {
-            try runDPI(options: options, argument: String(dpi))
-        } else {
-            try runDPI(options: options, argument: nil)
-            print("Say the number too. Sensitivity: razerctl dpi <100-35000>")
-            print("For refresh rate instead: razerctl polling <125/250/500/1000/2000/4000/8000>")
-        }
-    case .setPolling:
-        if let hz = match.polling {
-            try runPolling(options: options, argument: String(hz))
-        } else {
-            try runPolling(options: options, argument: nil)
-            print("Say the rate too: razerctl polling <125/250/500/1000/2000/4000/8000>")
-            print("For sensitivity instead: razerctl dpi <100-35000>")
-        }
-    case .bluetooth:
-        runBluetooth()
-    case .pair:
-        try runPair(options: options)
-    case .matchLogitech:
-        try runMatch(options: options, argument: nil)
-    case .diagnose:
-        runDoctor(options: options)
-    }
-}
-
-func runIntents(options: Options) {
-    if options.json {
-        let rows: [[String: Any]] = Intent.allCases.map { intent in
-            [
-                "intent": intent.rawValue,
-                "summary": intent.summary,
-                "examples": intent.examples,
-            ]
-        }
-        let data = try? JSONSerialization.data(withJSONObject: rows, options: [.prettyPrinted, .sortedKeys])
-        if let data, let text = String(data: data, encoding: .utf8) { print(text) }
-        return
-    }
-    for intent in Intent.allCases {
-        print(intent.rawValue)
-        print("  " + intent.summary)
-        print("  e.g. " + intent.examples.joined(separator: "  |  "))
-        print("")
-    }
-}
-
 // MARK: - Entry point
 
 var arguments = Array(CommandLine.arguments.dropFirst())
@@ -968,15 +900,6 @@ do {
         runStatus(options: options)
     case "setup":
         runSetup(options: options)
-    case "ask":
-        var text = positional.dropFirst().joined(separator: " ")
-        if text.isEmpty, let line = readLine(strippingNewline: true) { text = line }
-        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else {
-            fail("ask needs a sentence, for example: razerctl ask 'connect this mouse'")
-        }
-        try runAsk(options: options, text: text)
-    case "intents":
-        runIntents(options: options)
     default:
         fail("unknown command '\(command)' (try razerctl --help)")
     }
