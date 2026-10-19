@@ -13,13 +13,24 @@ kernel extension. Verified on a Razer Viper V3 Pro over both links: USB-C cable
 make install                  # build, sign, install to ~/.local/bin/razerctl
 razerctl install              # background agent, so settings survive a reconnect
 razerctl setup                # check the install in order, prints the next step
-razerctl dpi 1000             # set and save sensitivity
+razerctl dpi 800              # set and save sensitivity
 razerctl polling 125          # set and save report rate
 ```
 
+A fresh install writes a default spec and applies it on the first run:
+
+```yaml
+spec:
+  dpi: 800
+  pollingHz: 125
+  buttons:
+    side: back
+  idleSeconds: 300
+  lowBatteryPercent: 15
+```
+
 Settings live in `~/.config/razerctl/mouse.yaml` and the agent reapplies them. The defaults
-below (1000 DPI, 125 Hz) are what felt right on a 120 Hz MacBook screen; 1000 Hz is the better
-default for desktop work.
+suit a laptop screen and a 60-120 Hz game; 1000 Hz is the better choice for desktop work.
 
 ## The Bluetooth question
 

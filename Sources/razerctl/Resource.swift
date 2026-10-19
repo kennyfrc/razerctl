@@ -23,6 +23,31 @@ struct MouseResource: Equatable {
     var name = "mouse"
     var spec = MouseSpec()
 
+    /// What a fresh install starts with. 800 DPI and 125 Hz suit a laptop screen and a
+    /// 60-120 Hz game; the side buttons stay as back and forward until someone turns them off.
+    static let defaults = MouseSpec(
+        dpi: 800,
+        pollingHz: 125,
+        stage: nil,
+        buttonsSide: "back",
+        idleSeconds: 300,
+        lowBatteryPercent: 15
+    )
+
+    /// Writes the defaults when nothing is configured yet. An existing spec is never touched,
+    /// so this is safe to call on every start.
+    @discardableResult
+    static func seedDefaults() -> Bool {
+        let manager = FileManager.default
+        guard !manager.fileExists(atPath: file.path), !manager.fileExists(atPath: legacyFile.path) else {
+            return false
+        }
+        var resource = MouseResource()
+        resource.spec = defaults
+        guard (try? resource.save()) != nil else { return false }
+        return true
+    }
+
     static let directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/razerctl", isDirectory: true)
     static let file = directory.appendingPathComponent("mouse.yaml")

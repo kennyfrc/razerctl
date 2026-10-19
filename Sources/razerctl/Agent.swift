@@ -163,6 +163,7 @@ enum Agent {
         if status != 0 {
             throw CLIError("launchctl bootstrap failed with status \(status)")
         }
+        MouseResource.seedDefaults()
     }
 
     static func uninstall() throws {
@@ -193,6 +194,10 @@ enum Agent {
 /// and records battery and DPI so the CLI can report them without permission.
 func runWatch() {
     Agent.logLine("agent started")
+    // A first run with no config starts from the defaults instead of applying nothing.
+    if MouseResource.seedDefaults() {
+        Agent.logLine("wrote default config (800 dpi, 125 Hz)")
+    }
     // Anything the last run recorded is stale until this run sees the mouse again.
     if var previous = AgentState.load() {
         previous.connected = false

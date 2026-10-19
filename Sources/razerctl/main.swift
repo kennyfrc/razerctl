@@ -581,6 +581,20 @@ func runSetup(options: Options) {
         row("??", "permission", "unknown; something has to ask for it first")
     }
 
+    if let spec = MouseResource.load()?.spec {
+        let parts = [
+            spec.dpi.map { "\($0) dpi" },
+            spec.pollingHz.map { "\($0) Hz" },
+            spec.buttonsSide == "off" ? "side buttons off" : nil,
+            spec.idleSeconds.map { "sleep \($0)s" },
+            spec.lowBatteryPercent.map { "low battery \($0)%" },
+        ].compactMap { $0 }
+        row("ok", "config", parts.isEmpty ? "empty spec" : parts.joined(separator: ", "))
+    } else {
+        row("--", "config", "none yet; defaults are 800 dpi, 125 Hz, sleep 300s")
+        next.append("razerctl install      writes the default config on a first run")
+    }
+
     let ids = Set(RazerDevice.interfaces().map { $0.productId }).sorted()
     if ids.isEmpty {
         row("--", "device", "no Razer USB device")
@@ -929,6 +943,9 @@ do {
     case "pair":
         try runPair(options: options)
     case "install":
+        if MouseResource.seedDefaults() {
+            print("Wrote default config: 800 dpi, 125 Hz, sleep 300s, low battery 15%")
+        }
         try Agent.install()
         print("Installed \(Agent.label). Log: \(Agent.log.path)")
         try MenuBarAgent.install()
