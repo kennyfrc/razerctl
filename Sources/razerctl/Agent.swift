@@ -214,14 +214,19 @@ func runWatch() {
         // waiting for the mouse to reconnect.
         let settings = Settings.load()
         var noted: [String] = []
-        if let dpi = settings.dpi, dpi != applied.dpi,
-           (try? RazerCommands.setDPI(device, x: dpi, y: dpi)) != nil {
-            noted.append("dpi \(dpi)")
+        // Mark a value as applied even when the write fails, so a setting the current link
+        // cannot take (8 kHz on the cable) does not retry every five seconds. A reconnect
+        // resets this, which is when the setting becomes possible again.
+        if let dpi = settings.dpi, dpi != applied.dpi {
+            if (try? RazerCommands.setDPI(device, x: dpi, y: dpi)) != nil {
+                noted.append("dpi \(dpi)")
+            }
             applied.dpi = dpi
         }
-        if let polling = settings.polling, polling != applied.polling,
-           (try? RazerCommands.setPollingRate(device, hz: polling)) != nil {
-            noted.append("polling \(polling) Hz")
+        if let polling = settings.polling, polling != applied.polling {
+            if (try? RazerCommands.setPollingRate(device, hz: polling)) != nil {
+                noted.append("polling \(polling) Hz")
+            }
             applied.polling = polling
         }
         if !noted.isEmpty {
