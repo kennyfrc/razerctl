@@ -562,14 +562,16 @@ func runAsk(options: Options, text: String) throws {
             try runDPI(options: options, argument: String(dpi))
         } else {
             try runDPI(options: options, argument: nil)
-            print("Say the number too: razerctl dpi <100-35000>")
+            print("Say the number too. Sensitivity: razerctl dpi <100-35000>")
+            print("For refresh rate instead: razerctl polling <125/250/500/1000/2000/4000/8000>")
         }
     case .setPolling:
         if let hz = match.polling {
             try runPolling(options: options, argument: String(hz))
         } else {
             try runPolling(options: options, argument: nil)
-            print("Say the rate too: razerctl polling <\(RazerCommands.supportedRates.map(String.init).joined(separator: "/"))>")
+            print("Say the rate too: razerctl polling <125/250/500/1000/2000/4000/8000>")
+            print("For sensitivity instead: razerctl dpi <100-35000>")
         }
     case .bluetooth:
         runBluetooth()
