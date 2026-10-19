@@ -83,14 +83,17 @@ enum HIDAccess {
 /// receiver to process it, then read a 90-byte feature report back. This is the same
 /// conversation OpenRazer has over USB control transfers.
 final class RazerDevice {
-    /// OpenRazer's RAZER_VIPER_MOUSE_RECEIVER_WAIT_US. Shorter waits return status BUSY.
-    static let replyWaitMicroseconds: useconds_t = 31_000
+    /// OpenRazer's RAZER_MOUSE_WAIT_US for a cabled mouse. Shorter waits return status BUSY.
+    static let wiredWaitMicroseconds: useconds_t = 31_000
+    /// OpenRazer's RAZER_VIPER_MOUSE_RECEIVER_WAIT_US. The dongle needs about twice as long.
+    static let wirelessWaitMicroseconds: useconds_t = 60_000
 
     let device: IOHIDDevice
     let productId: Int
     let productName: String
     let locationId: Int
     var transactionId: UInt8
+    let replyWaitMicroseconds: useconds_t
 
     private init(interface: HIDInterface, transactionId: UInt8) {
         self.device = interface.device
@@ -98,6 +101,17 @@ final class RazerDevice {
         self.productName = interface.productName
         self.locationId = interface.locationId
         self.transactionId = transactionId
+        self.replyWaitMicroseconds = RazerDevice.linkWaitMicroseconds(for: interface.productId)
+    }
+
+    /// Product ids that reach the host through a 2.4 GHz dongle, which answers slower.
+    static func linkWaitMicroseconds(for productId: Int) -> useconds_t {
+        switch productId {
+        case 0x00C1, 0x00DF, 0x00DB, 0x00B8, 0x00B3:
+            return wirelessWaitMicroseconds
+        default:
+            return wiredWaitMicroseconds
+        }
     }
 
     /// Product id to (model, link) for the models this repo has been checked against.
@@ -187,7 +201,7 @@ final class RazerDevice {
         }
         guard setResult == kIOReturnSuccess else { throw RazerError.setReportFailed(setResult) }
 
-        usleep(RazerDevice.replyWaitMicroseconds)
+        usleep(replyWaitMicroseconds)
 
         var lastError = RazerError.badReply
         for attempt in 0..<5 {
@@ -216,7 +230,7 @@ final class RazerDevice {
                 }
             }
             if attempt < 4 {
-                usleep(RazerDevice.replyWaitMicroseconds * useconds_t(attempt + 1))
+                usleep(replyWaitMicroseconds * useconds_t(attempt + 1))
             }
         }
         throw lastError
