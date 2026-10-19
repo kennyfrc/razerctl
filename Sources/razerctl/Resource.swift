@@ -8,6 +8,9 @@ struct MouseSpec: Codable, Equatable {
     var pollingHz: Int?
     /// Point at an existing stage instead of writing a value.
     var stage: Int?
+    /// "off" swallows the side buttons at the system level; "back" leaves them as
+    /// back/forward. Razer's HID protocol has no button remap, so the agent does it.
+    var buttonsSide: String?
 }
 
 struct MouseResource: Equatable {
@@ -66,7 +69,7 @@ struct MouseResource: Equatable {
 
         if let spec = dictionary["spec"] {
             guard let map = spec as? [String: Any] else { throw CLIError("spec must be a map") }
-            try rejectUnknown(map, allowed: ["dpi", "pollingHz", "stage"], at: "spec")
+            try rejectUnknown(map, allowed: ["dpi", "pollingHz", "stage", "buttons"], at: "spec")
 
             if let value = try integer(map["dpi"], field: "spec.dpi") {
                 guard value >= RazerCommands.dpiMin, value <= RazerCommands.dpiMax else {
@@ -79,6 +82,16 @@ struct MouseResource: Equatable {
                     throw CLIError("spec.stage must be between 1 and 5")
                 }
                 resource.spec.stage = value
+            }
+            if let buttons = map["buttons"] {
+                guard let buttonMap = buttons as? [String: Any] else { throw CLIError("spec.buttons must be a map") }
+                try rejectUnknown(buttonMap, allowed: ["side"], at: "spec.buttons")
+                if let side = buttonMap["side"], !(side is NSNull) {
+                    guard let text = side as? String, ["off", "back"].contains(text) else {
+                        throw CLIError("spec.buttons.side must be off or back")
+                    }
+                    resource.spec.buttonsSide = text
+                }
             }
             if let value = try integer(map["pollingHz"], field: "spec.pollingHz") {
                 guard RazerCommands.supportedRates.contains(value) else {
@@ -122,6 +135,8 @@ struct MouseResource: Equatable {
         lines.append("  dpi: \(spec.dpi.map(String.init) ?? "null")")
         lines.append("  pollingHz: \(spec.pollingHz.map(String.init) ?? "null")")
         lines.append("  stage: \(spec.stage.map(String.init) ?? "null")")
+        lines.append("  buttons:")
+        lines.append("    side: \(spec.buttonsSide ?? "back")")
         return lines.joined(separator: "\n") + "\n"
     }
 }

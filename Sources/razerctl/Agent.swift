@@ -6,13 +6,19 @@ struct Settings: Codable, Equatable {
     var dpi: Int?
     var polling: Int?
     var stage: Int?
+    var buttonsSide: String?
 
     static let directory = MouseResource.directory
     static let file = MouseResource.file
 
     static func load() -> Settings {
         guard let resource = MouseResource.load() else { return Settings() }
-        return Settings(dpi: resource.spec.dpi, polling: resource.spec.pollingHz, stage: resource.spec.stage)
+        return Settings(
+            dpi: resource.spec.dpi,
+            polling: resource.spec.pollingHz,
+            stage: resource.spec.stage,
+            buttonsSide: resource.spec.buttonsSide
+        )
     }
 }
 
@@ -42,6 +48,8 @@ struct AgentState: Codable {
     var connected: Bool?
     var link: String?
     var activeStage: Int?
+    var sideButtons: String?
+    var accessibility: String?
     var phase: String?
     var conditions: [Condition]?
     var updatedAt: Date
@@ -188,8 +196,36 @@ func runWatch() {
     var permissionProblemLogged = false
     var applied = Settings()
     var lastBatteryRead = Date.distantPast
+    let buttonFilter = ButtonFilter()
+    var sideFiltering = false
+    var wantedSideSeen = "back"
 
     while true {
+        // The side buttons are filtered by an OS event tap, so this must run whether or not
+        // the mouse is present: the tap works on whatever device sends button 3 or 4.
+        let wantedSide = Settings.load().buttonsSide ?? "back"
+        let filtering = buttonFilter.sync(swallow: wantedSide == "off")
+        if filtering != sideFiltering || wantedSide != wantedSideSeen {
+            if wantedSide == "off" {
+                Agent.logLine(filtering
+                    ? "side buttons off"
+                    : "side buttons asked off, but Accessibility is not granted for razerctl")
+            } else if wantedSideSeen == "off" {
+                Agent.logLine("side buttons back to back and forward")
+            }
+            wantedSideSeen = wantedSide
+            sideFiltering = filtering
+        }
+        if var state = AgentState.load() {
+            let side = filtering ? "off" : "back"
+            let accessibility = ButtonFilter.hasAccessibility ? "granted" : "denied"
+            if state.sideButtons != side || state.accessibility != accessibility {
+                state.sideButtons = side
+                state.accessibility = accessibility
+                state.save()
+            }
+        }
+
         guard let device = try? RazerDevice.open() else {
             if !HIDAccess.isGranted, !permissionProblemLogged {
                 Agent.logLine("no Input Monitoring grant; turn on razerctl in System Settings > Privacy & Security")
@@ -291,6 +327,8 @@ func runWatch() {
                 pollingHz: polling?.hz,
                 connected: true,
                 activeStage: activeStage,
+                sideButtons: sideFiltering ? "off" : "back",
+                accessibility: ButtonFilter.hasAccessibility ? "granted" : "denied",
                 updatedAt: Date()
             )
             state.save()

@@ -22,6 +22,8 @@ USAGE
   razerctl stages [values...]      Show or set the DPI stage list (--active N)
   razerctl match [dpi]             Match the Logitech DPI, read from mxctl
   razerctl cursor                  Print the cursor position, for a distance test
+  razerctl buttons                 Show what the side buttons do
+  razerctl buttons side off|back   Swallow the side buttons, or give them back
   razerctl raw <class> <id> <size> [hex bytes...]
                                    Send a raw Razer report, for protocol work
   razerctl doctor                  Permissions, detection, and a live probe
@@ -375,6 +377,39 @@ func logitechDPI() -> Int? {
     return text.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.first
 }
 
+/// Side buttons: an OS-level tap, because Razer's protocol has no button remap.
+func runButtons(options: Options, arguments: [String]) throws {
+    if arguments.isEmpty {
+        let side = MouseResource.load()?.spec.buttonsSide ?? "back"
+        let state = agentState()
+        let applied = state?.sideButtons ?? "not applied"
+        let accessibility = state?.accessibility ?? (ButtonFilter.hasAccessibility ? "granted" : "denied")
+        if options.json {
+            printJSON(["side": side, "agent": applied, "accessibility": accessibility])
+        } else {
+            print("side buttons:  \(side) (\(applied))")
+            print("accessibility: \(accessibility)")
+            if side == "off", applied != "off" {
+                print("The agent cannot filter them yet. Grant Accessibility to razerctl:")
+                print("  open \"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility\"")
+            }
+        }
+        return
+    }
+
+    guard arguments.count == 2, arguments[0] == "side" else {
+        fail("use: razerctl buttons side off   or   razerctl buttons side back")
+    }
+    let wanted = arguments[1].lowercased()
+    guard ["off", "back", "default", "on"].contains(wanted) else {
+        fail("side buttons take off or back")
+    }
+    var resource = MouseResource.load() ?? MouseResource()
+    resource.spec.buttonsSide = (wanted == "off") ? "off" : "back"
+    try resource.save()
+    print("Saved side buttons \(resource.spec.buttonsSide ?? "back"). The agent applies it within a few seconds.")
+}
+
 /// Prints the cursor position, so a fixed physical movement can be measured on screen.
 func runCursor(options: Options) {
     if let seconds = options.watchSeconds {
@@ -553,6 +588,13 @@ func runDoctor(options: Options) {
         print("Latest agent read: \(state.product), battery \(state.batteryPercent.map(String.init) ?? "-")%, \(agentAge(state))")
     }
 
+    let accessibility = ButtonFilter.hasAccessibility
+    print("Accessibility:    \(accessibility ? "granted" : "denied") (needed to swallow the side buttons)")
+    if !accessibility, (MouseResource.load()?.spec.buttonsSide ?? "back") == "off" {
+        problems += 1
+        print("  razerctl buttons side off cannot work without it. This opens the pane:")
+        print("    open \"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility\"")
+    }
     print("Bluetooth:        \(bluetoothNote(for: control.first?.productId))")
     exit(problems == 0 ? 0 : 1)
 }
@@ -788,6 +830,8 @@ do {
         try runMatch(options: options, argument: positional.count > 1 ? positional[1] : nil)
     case "cursor":
         runCursor(options: options)
+    case "buttons":
+        try runButtons(options: options, arguments: Array(positional.dropFirst()))
     case "rawinput":
         try runRawInput(options: options, argument: positional.count > 1 ? positional[1] : nil)
     case "raw":

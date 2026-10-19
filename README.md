@@ -81,6 +81,8 @@ razerctl stages                  show the DPI stage list and the active one
 razerctl stages 400 800 1600 3200 6400 --active 3
                                  write the stage list back
 razerctl match                   copy the Logitech DPI, read from mxctl
+razerctl buttons                 what the side buttons do
+razerctl buttons side off|back   swallow the side buttons, or give them back
 razerctl raw 0x07 0x80 0x02      raw report (class, id, data size, args)
 razerctl doctor                  permissions, detection, live probe
 razerctl bluetooth               Bluetooth capability of this model
@@ -155,6 +157,26 @@ Silicon Macs cap some devices at 500 Hz anyway.
 
 DPI is a personal value. Desktop work usually lands between 1200 and 1600; games often use
 800 to 1600 and scale the rest with in-game sensitivity, since eDPI = DPI x sensitivity.
+
+## Side buttons
+
+Razer's HID protocol has no button remap command, and there is no Synapse for Mac for this
+mouse, so `razerctl` does it at the system level: a session event tap that returns nil for
+"other" mouse buttons 3 (back) and 4 (forward).
+
+```sh
+razerctl buttons side off     # the side buttons do nothing, in every app
+razerctl buttons side back    # back and forward again
+razerctl buttons              # what the spec says and what the agent is running
+```
+
+The setting lives in `spec.buttons.side` in `mouse.yaml`, so it survives a reconnect and the
+agent restores it.
+
+This needs the **Accessibility** grant, which is separate from Input Monitoring. Reading
+reports from the mouse is Input Monitoring; swallowing a click before other apps see it is
+Accessibility. `razerctl doctor` reports both, and `razerctl buttons` says `off (back)` when
+the spec asks for off but the tap is not running.
 
 ## Matching another mouse
 
