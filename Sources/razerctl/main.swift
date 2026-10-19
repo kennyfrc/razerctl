@@ -46,6 +46,7 @@ struct Options {
     var productId: Int?
     var transactionId: UInt8?
     var activeStage: Int?
+    var watchSeconds: Int?
 }
 
 func parseNumber(_ text: String) -> Int? {
@@ -376,12 +377,33 @@ func logitechDPI() -> Int? {
 
 /// Prints the cursor position, so a fixed physical movement can be measured on screen.
 func runCursor(options: Options) {
+    if let seconds = options.watchSeconds {
+        // Samples for a window so a physical movement can be measured without two manual
+        // steps. Output: elapsed seconds, x, y.
+        let end = Date().addingTimeInterval(Double(seconds))
+        var elapsed = 0.0
+        while Date() < end {
+            if let location = CGEvent(source: nil)?.location {
+                print(String(format: "%.2f %d %d", elapsed, Int(location.x), Int(location.y)))
+            }
+            fflush(stdout)
+            usleep(16_000)
+            elapsed += 0.016
+        }
+        return
+    }
     guard let location = CGEvent(source: nil)?.location else { fail("no cursor position available") }
     if options.json {
         printJSON(["x": Double(location.x), "y": Double(location.y)])
     } else {
         print("\(Int(location.x)) \(Int(location.y))")
     }
+}
+
+/// Dumps raw input reports, so movement can be counted in device units.
+func runRawInput(options: Options, argument: String?) throws {
+    let seconds = argument.flatMap(Double.init) ?? 10
+    try RazerDevice.streamInput(productId: options.productId, seconds: seconds)
 }
 
 func runRaw(options: Options, arguments: [String]) throws {
@@ -722,6 +744,12 @@ while index < arguments.count {
         index += 1
         guard index < arguments.count, let txid = parseNumber(arguments[index]) else { fail("--txid needs a number") }
         options.transactionId = UInt8(truncatingIfNeeded: txid)
+    case "--watch":
+        index += 1
+        guard index < arguments.count, let seconds = parseNumber(arguments[index]), seconds > 0 else {
+            fail("--watch needs a number of seconds")
+        }
+        options.watchSeconds = seconds
     case "--active":
         index += 1
         guard index < arguments.count, let stage = parseNumber(arguments[index]), stage >= 1 else {
@@ -760,6 +788,8 @@ do {
         try runMatch(options: options, argument: positional.count > 1 ? positional[1] : nil)
     case "cursor":
         runCursor(options: options)
+    case "rawinput":
+        try runRawInput(options: options, argument: positional.count > 1 ? positional[1] : nil)
     case "raw":
         try runRaw(options: options, arguments: Array(positional.dropFirst()))
     case "doctor":

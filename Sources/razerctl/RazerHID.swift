@@ -104,6 +104,58 @@ final class RazerDevice {
         self.replyWaitMicroseconds = RazerDevice.linkWaitMicroseconds(for: interface.productId)
     }
 
+    /// Streams the pointer's input reports for a few seconds. Used to count raw movement
+    /// deltas, which is the only way to check DPI without screen edges or acceleration.
+    final class Tag {
+        let page: Int
+        let usage: Int
+        init(page: Int, usage: Int) {
+            self.page = page
+            self.usage = usage
+        }
+    }
+
+    static func streamInput(productId: Int?, seconds: Double) throws {
+        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        var matching: [String: Any] = [
+            kIOHIDVendorIDKey as String: 0x1532,
+        ]
+        if let productId { matching[kIOHIDProductIDKey as String] = productId }
+        IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
+        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+        IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+
+        guard let devices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice>, !devices.isEmpty else {
+            throw RazerError.deviceNotFound
+        }
+
+        var opened = 0
+        for device in devices {
+            let page = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
+            let usage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
+            guard IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone)) == kIOReturnSuccess else { continue }
+            opened += 1
+            let context = Unmanaged.passRetained(Tag(page: page, usage: usage)).toOpaque()
+            IOHIDDeviceRegisterInputReportCallback(device, UnsafeMutablePointer<UInt8>.allocate(capacity: 4096), 4096, { context, result, _, _, reportId, report, reportLength in
+                guard let context, result == kIOReturnSuccess else { return }
+                let tag = Unmanaged<Tag>.fromOpaque(context).takeUnretainedValue()
+                var hex = ""
+                for index in 0..<reportLength {
+                    hex += String(format: "%02x ", report[index])
+                }
+                print(String(format: "%.3f p=%02x u=%02x id=%d len=%d %@", Date().timeIntervalSince1970, tag.page, tag.usage, Int(reportId), reportLength, hex.trimmingCharacters(in: .whitespaces)))
+                fflush(stdout)
+            }, context)
+            IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+        }
+
+        if opened == 0 { throw RazerError.permissionDenied }
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end {
+            CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0.1, true)
+        }
+    }
+
     /// Product ids that reach the host through a 2.4 GHz dongle, which answers slower.
     static func linkWaitMicroseconds(for productId: Int) -> useconds_t {
         switch productId {

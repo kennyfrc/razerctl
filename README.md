@@ -122,6 +122,20 @@ prints the list, and `razerctl stages 400 800 1600 3200 6400 --active 3` writes 
 Stage writes go to the mouse's storage, so the device answers BUSY for a few seconds
 afterwards. Reads during that window come back empty; wait a moment and retry.
 
+## Recommended settings
+
+```sh
+razerctl dpi 1000
+razerctl polling 1000
+```
+
+1000 Hz is the right default on macOS. It is 1 ms per report, every game handles it, and
+the CPU cost stays low. Above 1000 Hz the gain is small and the cost is real: more USB
+traffic, more CPU, and faster battery drain over the wireless link.
+
+DPI is a personal value. Desktop work usually lands between 1200 and 1600; games often use
+800 to 1600 and scale the rest with in-game sensitivity, since eDPI = DPI x sensitivity.
+
 ## Matching another mouse
 
 Same DPI means the same physical sensitivity at the same macOS pointer speed. To match a
@@ -220,7 +234,9 @@ On 2026-10-19, against the attached Viper V3 Pro:
 - writes survive a reconnect, because the agent reapplies the saved config;
 - DPI stage list read as 400 / 800 / 1600 / 3200 / 6400 with stage 3 active, and the
   active stage is what the DPI reading now reports;
-- matched a Logitech at 1000 DPI with `razerctl match`.
+- matched a Logitech at 1000 DPI with `razerctl match`;
+- at 1000 DPI and 1000 Hz the Viper feels the same as an MX Master 3S at 1000 DPI, which was
+  not true while the wrong DPI stage was active.
 
 ## Credits
 
