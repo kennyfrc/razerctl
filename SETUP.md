@@ -94,6 +94,7 @@ app that runs your shell (Terminal, iTerm), you can skip the agent:
 | `razerctl` says "not connected" but the mouse works | the agent lost the link, often after a port change | `razerctl setup` |
 | Polling falls to 1000 Hz on the dongle | a hub or dock cannot carry 8000 reports per second | plug the dongle into the Mac directly |
 | 8000 Hz is rejected on the cable | the wired link stops at 1000 Hz | expected; use the dongle for 8 kHz |
+| The mouse feels slower than the DPI it reports | the active DPI stage does not match the single-value register | `razerctl stages`, then `razerctl dpi <value>` |
 | Input Monitoring list does not show `razerctl` | nothing has requested access yet | `razerctl doctor`, then reopen the pane |
 | Grant disappears after a rebuild | binary swapped without the fixed signature | `make install` signs every time; do not copy the build by hand |
 
