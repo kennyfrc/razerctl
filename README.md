@@ -63,6 +63,10 @@ razerctl dpi                     read DPI
 razerctl dpi 1600                set DPI and save it
 razerctl polling                 read polling rate
 razerctl polling 8000            set polling rate and save it
+razerctl stages                  show the DPI stage list and the active one
+razerctl stages 400 800 1600 3200 6400 --active 3
+                                 write the stage list back
+razerctl match                   copy the Logitech DPI, read from mxctl
 razerctl raw 0x07 0x80 0x02      raw report (class, id, data size, args)
 razerctl doctor                  permissions, detection, live probe
 razerctl bluetooth               Bluetooth capability of this model
@@ -104,6 +108,32 @@ Recognised intents: `connect`, `status`, `battery`, `set_dpi`, `set_polling`,
 no keywords falls to `diagnose`, which runs the checks and names the next step.
 
 Piping works too: `echo "how much battery is left" | razerctl ask`.
+
+## DPI is a stage list
+
+The mouse keeps five DPI stages and runs whichever stage is active. The single-value
+register (command 0x04/0x85) can report a number that the active stage does not match, so
+the CLI could say 1600 while the mouse was moving at the 400 DPI of stage 1.
+
+`razerctl dpi` now reads the active stage, and `razerctl dpi <value>` activates the stage that
+already holds the value, or overwrites the active stage and keeps it active. `razerctl stages`
+prints the list, and `razerctl stages 400 800 1600 3200 6400 --active 3` writes it back.
+
+Stage writes go to the mouse's storage, so the device answers BUSY for a few seconds
+afterwards. Reads during that window come back empty; wait a moment and retry.
+
+## Matching another mouse
+
+Same DPI means the same physical sensitivity at the same macOS pointer speed. To match a
+Logitech MX Master 3S:
+
+```sh
+razerctl match          # reads "mxctl dpi" and applies the same number
+razerctl match 800      # or state the number yourself
+```
+
+`mxctl` is the companion CLI for the MX Master 3S. Games multiply this by their own
+sensitivity, so matching DPI only aligns the base: eDPI = DPI x in-game sensitivity.
 
 ## Going wireless
 
@@ -187,7 +217,10 @@ On 2026-10-19, against the attached Viper V3 Pro:
 - cable link `0x00C0`: battery 91%, DPI set and read back, polling 1000 Hz;
 - dongle link `0x00C1`: battery 95%, DPI 1600, polling 8000 Hz;
 - firmware and serial read over the same channel;
-- writes survive a reconnect, because the agent reapplies the saved config.
+- writes survive a reconnect, because the agent reapplies the saved config;
+- DPI stage list read as 400 / 800 / 1600 / 3200 / 6400 with stage 3 active, and the
+  active stage is what the DPI reading now reports;
+- matched a Logitech at 1000 DPI with `razerctl match`.
 
 ## Credits
 

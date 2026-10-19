@@ -59,9 +59,63 @@ enum RazerCommands {
 
     // MARK: - DPI
 
-    /// 0x04/0x85 takes a varstore byte; the Viper V3 Pro answers with NOSTORE, other
-    /// models with VARSTORE, so try both.
+    /// The mouse runs a stage list, not a single DPI value. The active stage decides the
+    /// real sensitivity; the single-value register can disagree with it, which makes the
+    /// mouse feel slower than the number the CLI reports.
+    struct DPIStages {
+        var active: Int
+        var values: [Int]
+    }
+
+    static func dpiStages(_ device: RazerDevice) throws -> DPIStages {
+        let reply = try device.send(
+            RazerReport(commandClass: 0x04, commandId: 0x86, dataSize: 0x26, arguments: [0x01])
+        )
+        let active = Int(reply.arguments[1])
+        let count = Int(reply.arguments[2])
+        var values: [Int] = []
+        var offset = 3
+        for _ in 0..<max(0, count) where offset + 4 < RazerReport.argumentCount {
+            let x = (Int(reply.arguments[offset + 1]) << 8) | Int(reply.arguments[offset + 2])
+            values.append(x)
+            offset += 7
+        }
+        guard !values.isEmpty else { throw RazerError.deviceFailure }
+        return DPIStages(active: active, values: values)
+    }
+
+    static func writeDPIStages(_ device: RazerDevice, active: Int, values: [Int]) throws {
+        var arguments: [UInt8] = [
+            0x01,
+            UInt8(truncatingIfNeeded: active),
+            UInt8(truncatingIfNeeded: values.count),
+        ]
+        for (index, value) in values.enumerated() {
+            arguments.append(UInt8(truncatingIfNeeded: index))
+            arguments.append(UInt8((value >> 8) & 0xFF))
+            arguments.append(UInt8(value & 0xFF))
+            arguments.append(UInt8((value >> 8) & 0xFF))
+            arguments.append(UInt8(value & 0xFF))
+            arguments.append(0x00)
+            arguments.append(0x00)
+        }
+        let request = RazerReport(
+            commandClass: 0x04,
+            commandId: 0x06,
+            dataSize: 0x26,
+            arguments: arguments
+        )
+        _ = try device.send(request)
+    }
+
+    /// Effective DPI: the value of the active stage. Falls back to the single-value
+    /// register on models that do not expose stages.
     static func dpi(_ device: RazerDevice) throws -> DPISetting {
+        if let stages = try? dpiStages(device),
+           stages.active >= 1, stages.active <= stages.values.count {
+            let value = stages.values[stages.active - 1]
+            if value > 0 { return DPISetting(x: value, y: value) }
+        }
         for store: UInt8 in [0x01, 0x00] {
             guard let reply = try? device.send(
                 RazerReport(commandClass: 0x04, commandId: 0x85, dataSize: 0x07, arguments: [store])
@@ -73,18 +127,38 @@ enum RazerCommands {
         throw RazerError.deviceFailure
     }
 
-    /// 0x04/0x05 with VARSTORE, x and y as big-endian 16-bit values.
+    /// Sets the real DPI: reuses a stage that already holds the value, or overwrites the
+    /// active stage and keeps it active. Writing the single-value register alone does not
+    /// change which stage is active, so the mouse can keep running at the old sensitivity.
     static func setDPI(_ device: RazerDevice, x: Int, y: Int) throws {
-        let clampedX = min(max(x, dpiMin), dpiMax)
-        let clampedY = min(max(y, dpiMin), dpiMax)
+        let target = min(max(x, dpiMin), dpiMax)
+        guard var stages = try? dpiStages(device) else {
+            try setDPISingle(device, value: target)
+            return
+        }
+        if let index = stages.values.firstIndex(of: target) {
+            stages.active = index + 1
+        } else {
+            let index = min(max(stages.active - 1, 0), stages.values.count - 1)
+            stages.values[index] = target
+            stages.active = index + 1
+        }
+        do {
+            try writeDPIStages(device, active: stages.active, values: stages.values)
+        } catch {
+            try setDPISingle(device, value: target)
+        }
+    }
+
+    static func setDPISingle(_ device: RazerDevice, value: Int) throws {
         let request = RazerReport(
             commandClass: 0x04,
             commandId: 0x05,
             dataSize: 0x07,
             arguments: [
-                0x01,
-                UInt8((clampedX >> 8) & 0xFF), UInt8(clampedX & 0xFF),
-                UInt8((clampedY >> 8) & 0xFF), UInt8(clampedY & 0xFF),
+                0x00,
+                UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF),
+                UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF),
                 0x00, 0x00,
             ]
         )

@@ -1,28 +1,38 @@
 import Foundation
 
-/// Settings the agent reapplies when the mouse reconnects. The CLI writes this file;
-/// the launchd agent reads it, so a change lands even when the CLI itself holds no
-/// Input Monitoring grant.
-struct Settings: Codable {
+/// The desired spec, as the agent sees it. Reads and writes the declarative Mouse resource,
+/// so an imperative "razerctl dpi 1600" and an applied mouse.yaml change the same thing.
+struct Settings: Codable, Equatable {
     var dpi: Int?
     var polling: Int?
 
-    static let directory = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/razerctl", isDirectory: true)
-    static let file = directory.appendingPathComponent("config.json")
+    static let directory = MouseResource.directory
+    static let file = MouseResource.file
 
     static func load() -> Settings {
-        guard let data = try? Data(contentsOf: file),
-              let settings = try? JSONDecoder().decode(Settings.self, from: data)
-        else { return Settings() }
-        return settings
+        guard let resource = MouseResource.load() else { return Settings() }
+        return Settings(dpi: resource.spec.dpi, polling: resource.spec.pollingHz)
     }
 
     func save() throws {
-        try FileManager.default.createDirectory(at: Settings.directory, withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(self).write(to: Settings.file)
+        var resource = MouseResource.load() ?? MouseResource()
+        resource.spec.dpi = dpi
+        resource.spec.pollingHz = polling
+        try resource.save()
+    }
+}
+
+/// One reconciliation fact, with the time it last changed state.
+struct Condition: Codable, Equatable {
+    var type: String
+    var status: Bool
+    var reason: String
+    var lastTransitionTime: Date
+
+    /// Keeps the old timestamp while the condition does not change, like a Kubernetes condition.
+    static func next(_ previous: [Condition]?, type: String, status: Bool, reason: String, now: Date = Date()) -> Condition {
+        let carried = previous?.first { $0.type == type && $0.status == status }?.lastTransitionTime
+        return Condition(type: type, status: status, reason: reason, lastTransitionTime: carried ?? now)
     }
 }
 
@@ -36,9 +46,12 @@ struct AgentState: Codable {
     var dpiY: Int?
     var pollingHz: Int?
     var connected: Bool?
+    var link: String?
+    var phase: String?
+    var conditions: [Condition]?
     var updatedAt: Date
 
-    static let file = Settings.directory.appendingPathComponent("state.json")
+    static let file = MouseResource.directory.appendingPathComponent("status.json")
 
     static func load() -> AgentState? {
         guard let data = try? Data(contentsOf: file) else { return nil }

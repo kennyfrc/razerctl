@@ -9,6 +9,7 @@ enum Intent: String, CaseIterable {
     case setPolling = "set_polling"
     case bluetooth
     case pair
+    case matchLogitech = "match_logitech"
     case diagnose
 
     var summary: String {
@@ -20,6 +21,7 @@ enum Intent: String, CaseIterable {
         case .setPolling: return "set the polling rate, for example \"max out the polling rate\""
         case .bluetooth: return "answer whether this model can use Bluetooth"
         case .pair: return "put the dongle in pairing mode"
+        case .matchLogitech: return "set the DPI to the Logitech's DPI, read from mxctl"
         case .diagnose: return "check permissions, the device and the agent, then name the problem"
         }
     }
@@ -40,6 +42,8 @@ enum Intent: String, CaseIterable {
             return ["does it support bluetooth", "why is it not in the bluetooth list"]
         case .pair:
             return ["pair the dongle", "the dongle does not see the mouse"]
+        case .matchLogitech:
+            return ["match my logitech dpi", "same sensitivity as the mx master"]
         case .diagnose:
             return ["it is not working", "why is the cli failing", "fix my mouse"]
         }
@@ -64,6 +68,7 @@ enum IntentParser {
         .setPolling: ["polling", "poll rate", "hz", "latency", "lag", "responsive"],
         .bluetooth: ["bluetooth", "bt", "pair with my phone", "pairing list"],
         .pair: ["pair the dongle", "repair", "pairing mode", "not see the mouse", "does not see"],
+        .matchLogitech: ["match my logitech", "same as my logitech", "mx master", "logitech"],
         .diagnose: ["not working", "broken", "why", "fix", "problem", "issue", "failing", "not showing"],
     ]
 
@@ -94,6 +99,9 @@ enum IntentParser {
 
         // A named subject beats a vague verb: "why is bluetooth not showing" is a
         // Bluetooth question, not a diagnosis.
+        if normalized.contains("logitech") || normalized.contains("mx master") {
+            return IntentMatch(intent: .matchLogitech, score: bestScore + 3, dpi: nil, polling: nil)
+        }
         if normalized.contains("bluetooth") {
             bestIntent = .bluetooth
             bestScore += 2

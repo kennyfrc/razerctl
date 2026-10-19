@@ -18,6 +18,8 @@ USAGE
   razerctl dpi <value>             Set DPI (100-35000) and save it
   razerctl polling                 Read the polling rate
   razerctl polling <hz>            Set the polling rate and save it
+  razerctl stages [values...]      Show or set the DPI stage list (--active N)
+  razerctl match [dpi]             Match the Logitech DPI, read from mxctl
   razerctl raw <class> <id> <size> [hex bytes...]
                                    Send a raw Razer report, for protocol work
   razerctl doctor                  Permissions, detection, and a live probe
@@ -41,6 +43,7 @@ struct Options {
     var json = false
     var productId: Int?
     var transactionId: UInt8?
+    var activeStage: Int?
 }
 
 func parseNumber(_ text: String) -> Int? {
@@ -285,6 +288,69 @@ func runPair(options: Options) throws {
     }
     try RazerCommands.pairDongle(dongle)
     print("Pairing mode sent to the dongle. Turn the mouse on and keep it close.")
+}
+
+func runStages(options: Options, arguments: [String]) throws {
+    let device = try openDevice(options)
+    guard !arguments.isEmpty else {
+        let stages = try RazerCommands.dpiStages(device)
+        print("active: \(stages.active)")
+        for (index, value) in stages.values.enumerated() {
+            let marker = index + 1 == stages.active ? "*" : " "
+            print("  \(marker) stage \(index + 1): \(value)")
+        }
+        return
+    }
+
+    let values = arguments.compactMap { Int($0) }
+    guard values.count == arguments.count, !values.isEmpty else {
+        fail("stages needs whole numbers, for example: razerctl stages 400 800 1600 3200 6400 --active 3")
+    }
+    let active = options.activeStage ?? 1
+    guard active <= values.count else { fail("--active \(active) is past the last stage (\(values.count))") }
+    try RazerCommands.writeDPIStages(device, active: active, values: values)
+    let stages = try RazerCommands.dpiStages(device)
+    print("active: \(stages.active) of \(stages.values.count)")
+    print(stages.values.map(String.init).joined(separator: ", "))
+}
+
+func runMatch(options: Options, argument: String?) throws {
+    var target: Int?
+    if let argument, let value = Int(argument) {
+        target = value
+    } else if let argument {
+        fail("match expects a DPI number or nothing to read the Logitech")
+    } else {
+        target = logitechDPI()
+    }
+    guard let dpi = target else {
+        fail("no Logitech DPI available. Connect the MX mouse, or pass a number: razerctl match 800")
+    }
+    try runDPI(options: options, argument: String(dpi))
+}
+
+/// Reads the DPI from mxctl when it is installed and the Logitech is connected.
+func logitechDPI() -> Int? {
+    let candidates = [
+        NSHomeDirectory() + "/.local/bin/mxctl",
+        "/opt/homebrew/bin/mxctl",
+        "/usr/local/bin/mxctl",
+    ]
+    guard let tool = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+        return nil
+    }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: tool)
+    process.arguments = ["dpi"]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    guard (try? process.run()) != nil else { return nil }
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else { return nil }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    let text = String(decoding: data, as: UTF8.self)
+    return text.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.first
 }
 
 func runRaw(options: Options, arguments: [String]) throws {
@@ -577,6 +643,8 @@ func runAsk(options: Options, text: String) throws {
         runBluetooth()
     case .pair:
         try runPair(options: options)
+    case .matchLogitech:
+        try runMatch(options: options, argument: nil)
     case .diagnose:
         runDoctor(options: options)
     }
@@ -623,6 +691,12 @@ while index < arguments.count {
         index += 1
         guard index < arguments.count, let txid = parseNumber(arguments[index]) else { fail("--txid needs a number") }
         options.transactionId = UInt8(truncatingIfNeeded: txid)
+    case "--active":
+        index += 1
+        guard index < arguments.count, let stage = parseNumber(arguments[index]), stage >= 1 else {
+            fail("--active needs a stage number starting at 1")
+        }
+        options.activeStage = stage
     case "-h", "--help", "help":
         print(usageText)
         exit(0)
@@ -649,6 +723,10 @@ do {
         try runDPI(options: options, argument: positional.count > 1 ? positional[1] : nil)
     case "polling":
         try runPolling(options: options, argument: positional.count > 1 ? positional[1] : nil)
+    case "stages":
+        try runStages(options: options, arguments: Array(positional.dropFirst()))
+    case "match":
+        try runMatch(options: options, argument: positional.count > 1 ? positional[1] : nil)
     case "raw":
         try runRaw(options: options, arguments: Array(positional.dropFirst()))
     case "doctor":
